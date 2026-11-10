@@ -79,3 +79,34 @@ ALTER TABLE contactos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE oportunidades ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tareas ENABLE ROW LEVEL SECURITY;
 ALTER TABLE actividades ENABLE ROW LEVEL SECURITY;
+
+-- ---------------------------------------------------------------------------
+-- Acceso de usuarios: cuentas activas/inactivas, contraseñas temporales,
+-- sesiones persistentes y pedidos de "olvidé mi contraseña".
+-- ---------------------------------------------------------------------------
+
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS activo BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS debe_cambiar_password BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS creado TIMESTAMPTZ NOT NULL DEFAULT now();
+
+-- Se guarda solo el hash del token de sesión, nunca el token.
+CREATE TABLE IF NOT EXISTS sesiones (
+  token_hash TEXT PRIMARY KEY,
+  usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  creada TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expira TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sesiones_usuario_idx ON sesiones (usuario_id);
+
+CREATE TABLE IF NOT EXISTS solicitudes_password (
+  id SERIAL PRIMARY KEY,
+  usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  creada TIMESTAMPTZ NOT NULL DEFAULT now(),
+  estado TEXT NOT NULL DEFAULT 'pendiente' CHECK (estado IN ('pendiente', 'resuelta', 'descartada')),
+  resuelta TIMESTAMPTZ
+);
+-- Como máximo un pedido pendiente por usuario.
+CREATE UNIQUE INDEX IF NOT EXISTS solicitudes_una_pendiente ON solicitudes_password (usuario_id) WHERE estado = 'pendiente';
+
+ALTER TABLE sesiones ENABLE ROW LEVEL SECURITY;
+ALTER TABLE solicitudes_password ENABLE ROW LEVEL SECURITY;

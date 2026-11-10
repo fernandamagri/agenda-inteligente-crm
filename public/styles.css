@@ -287,6 +287,25 @@ table.tabla { width: 100%; border-collapse: collapse; font-size: .92em; }
 .opo-monto { font-weight: 650; font-variant-numeric: tabular-nums; }
 .subtitulo { font-size: 1.05rem; margin: 22px 0 12px; }
 
+
+/* Acceso de usuarios */
+.link.centrado { justify-self: center; color: var(--primario); font-size: .9em; }
+.titulo-caja { font-size: 1.1rem; margin: 4px 0 -4px; }
+.ok { color: var(--ok); background: var(--ok-suave); padding: 8px 10px; border-radius: 8px; margin: 0; font-size: .9em; }
+.insignia { display: inline-block; min-width: 18px; padding: 0 6px; margin-left: 4px; border-radius: 999px; background: var(--peligro); color: #fff; font-size: .75em; font-weight: 700; text-align: center; line-height: 18px; }
+.banda-aviso { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; background: var(--alerta-suave); border: 1px solid var(--alerta); color: var(--texto); border-radius: var(--radio); padding: 10px 14px; margin-bottom: 16px; font-size: .92em; }
+.panel-alerta { border-color: var(--alerta); margin-bottom: 16px; }
+.panel-alerta li { align-items: center; flex-wrap: wrap; }
+.panel-alerta li .mover { flex-wrap: wrap; }
+.panel-alerta li .crece { min-width: 220px; overflow-wrap: anywhere; }
+.dialogo-cuerpo { padding: 20px 22px; display: grid; gap: 14px; }
+.dialogo .info { font-size: .85em; color: var(--texto-sutil); margin: 0; }
+.dialogo .info:empty { display: none; }
+.temporal { display: flex; align-items: center; gap: 10px; background: var(--superficie-2); border: 1px dashed var(--borde); border-radius: 10px; padding: 12px 14px; }
+.temporal code { font-size: 1.35rem; letter-spacing: .08em; background: none; padding: 0; flex: 1; user-select: all; }
+.peligro-texto { color: var(--peligro); }
+.botones-fila { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+
 /* Responsive */
 @media (max-width: 1100px) {
   .app { grid-template-columns: 170px minmax(0, 1fr) minmax(300px, 360px); }

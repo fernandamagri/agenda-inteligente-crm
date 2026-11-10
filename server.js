@@ -2,52 +2,125 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { prepararBase, uno } from './src/db.js';
-import { COOKIE, cerrarSesion, crearSesion, leerCookie, obtenerSesion, verificarPassword } from './src/auth.js';
+import { verificarPassword } from './src/claves.js';
+import {
+  COOKIE, bloqueado, cerrarSesion, cookieBorrada, cookieDeSesion, crearSesion, leerCookie,
+  limpiarIntentos, registrarIntento, usuarioDeSesion,
+} from './src/sesiones.js';
 import { ENTIDADES, ErrorCRM, actualizar, calcularResumen, crear, eliminar, fichaCliente, listar, listarUsuarios, resumenEquipo } from './src/crm.js';
+import {
+  actualizarUsuario, cambiarPassword, crearUsuario, descartarSolicitud, listarSolicitudes,
+  listarUsuariosAdmin, pedirRestablecimiento, restablecerPassword,
+} from './src/usuarios.js';
 import { MODELO, conversar, credencialesConfiguradas } from './src/asistente.js';
 
 const app = express();
 const PUERTO = Number(process.env.PORT) || 3000;
 const aqui = path.dirname(fileURLToPath(import.meta.url));
 
+app.set('trust proxy', 1); // Render atiende HTTPS adelante: así la cookie sale marcada como segura
 app.use(express.json({ limit: '100kb' }));
 app.use(express.static(path.join(aqui, 'public')));
 
+const publico = (u) => ({ id: u.id, nombre: u.nombre, email: u.email, rol: u.rol, debeCambiarPassword: Boolean(u.debe_cambiar_password) });
+const idValido = (req) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) throw new ErrorCRM('Identificador inválido.', 400);
+  return id;
+};
+
 // --- Sesión -----------------------------------------------------------------
 
-function usuarioPorId(id) {
-  return uno('SELECT id, nombre, email, rol FROM usuarios WHERE id = :id', { id });
-}
+// Conversaciones con el asistente, por sesión (en memoria: se pierden si el servidor se reinicia).
+const conversaciones = new Map();
 
-async function requiereSesion(req, res, next) {
+async function conSesion(req, res, next) {
   const token = leerCookie(req, COOKIE);
-  const sesion = obtenerSesion(token);
-  const usuario = sesion && (await usuarioPorId(sesion.usuarioId));
+  const usuario = await usuarioDeSesion(token);
   if (!usuario) return res.status(401).json({ error: 'Tenés que iniciar sesión.' });
   req.token = token;
-  req.sesion = sesion;
-  req.usuario = { ...usuario };
+  req.usuario = usuario;
+  if (!conversaciones.has(token)) conversaciones.set(token, { conversacion: [] });
+  req.sesion = conversaciones.get(token);
   next();
 }
 
+/** Además de la sesión, exige que no haya una contraseña temporal pendiente de cambio. */
+function requiereSesion(req, res, next) {
+  conSesion(req, res, () => {
+    if (req.usuario.debe_cambiar_password) {
+      return res.status(403).json({ error: 'Tenés que elegir una contraseña nueva antes de seguir.', debeCambiarPassword: true });
+    }
+    next();
+  }).catch(next);
+}
+
 app.post('/api/login', async (req, res) => {
-  const { email, password } = req.body || {};
-  const fila = await uno('SELECT * FROM usuarios WHERE email = :email', { email: String(email || '').trim().toLowerCase() });
-  if (!fila || !verificarPassword(String(password || ''), fila.password_hash)) {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const password = String(req.body?.password || '');
+  const claveIp = `ip:${req.ip}`;
+  const claveEmail = `email:${email}`;
+  if (bloqueado(claveIp, 30, 15) || bloqueado(claveEmail, 8, 15)) {
+    return res.status(429).json({ error: 'Demasiados intentos fallidos. Esperá 15 minutos y probá de nuevo.' });
+  }
+
+  const fila = await uno('SELECT * FROM usuarios WHERE email = :email', { email });
+  if (!fila || !verificarPassword(password, fila.password_hash)) {
+    registrarIntento(claveIp);
+    registrarIntento(claveEmail);
     return res.status(401).json({ error: 'Email o contraseña incorrectos.' });
   }
-  const token = crearSesion(fila.id);
-  res.setHeader('Set-Cookie', `${COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/`);
-  res.json({ id: fila.id, nombre: fila.nombre, email: fila.email, rol: fila.rol });
+  if (!fila.activo) {
+    return res.status(403).json({ error: 'Tu cuenta está desactivada. Consultá con la administración.' });
+  }
+  limpiarIntentos(claveEmail);
+  const token = await crearSesion(fila.id);
+  res.setHeader('Set-Cookie', cookieDeSesion(token, req));
+  res.json(publico(fila));
 });
 
-app.post('/api/logout', requiereSesion, (req, res) => {
-  cerrarSesion(req.token);
-  res.setHeader('Set-Cookie', `${COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`);
+app.post('/api/logout', async (req, res) => {
+  const token = leerCookie(req, COOKIE);
+  await cerrarSesion(token);
+  conversaciones.delete(token);
+  res.setHeader('Set-Cookie', cookieBorrada(req));
   res.json({ ok: true });
 });
 
-app.get('/api/me', requiereSesion, (req, res) => res.json(req.usuario));
+app.get('/api/me', conSesion, (req, res) => res.json(publico(req.usuario)));
+
+// --- Contraseñas -------------------------------------------------------------
+
+app.post('/api/password/cambiar', conSesion, async (req, res) => {
+  await cambiarPassword(req.usuario, req.body?.actual, req.body?.nueva, req.token);
+  res.json({ ok: true });
+});
+
+app.post('/api/password/olvide', async (req, res) => {
+  const claveIp = `olvide:${req.ip}`;
+  if (bloqueado(claveIp, 5, 60)) {
+    return res.status(429).json({ error: 'Ya enviaste varios pedidos. Probá de nuevo en una hora.' });
+  }
+  registrarIntento(claveIp);
+  await pedirRestablecimiento(req.body?.email);
+  res.json({ ok: true }); // misma respuesta exista o no la cuenta
+});
+
+// --- Administración de usuarios (solo administrador) -----------------------
+
+app.get('/api/admin/usuarios', requiereSesion, async (req, res) => res.json(await listarUsuariosAdmin(req.usuario)));
+app.post('/api/admin/usuarios', requiereSesion, async (req, res) => res.status(201).json(await crearUsuario(req.usuario, req.body)));
+app.put('/api/admin/usuarios/:id', requiereSesion, async (req, res) =>
+  res.json(await actualizarUsuario(req.usuario, idValido(req), req.body || {}))
+);
+app.post('/api/admin/usuarios/:id/restablecer', requiereSesion, async (req, res) =>
+  res.json(await restablecerPassword(req.usuario, idValido(req)))
+);
+app.get('/api/admin/solicitudes', requiereSesion, async (req, res) => res.json(await listarSolicitudes(req.usuario)));
+app.post('/api/admin/solicitudes/:id/descartar', requiereSesion, async (req, res) => {
+  await descartarSolicitud(req.usuario, idValido(req));
+  res.json({ ok: true });
+});
 
 // --- CRM ----------------------------------------------------------------------
 
@@ -58,11 +131,6 @@ app.get('/api/clientes/:id/ficha', requiereSesion, async (req, res) => res.json(
 
 // Solo las entidades conocidas pasan; el resto sigue a las rutas siguientes.
 const esEntidad = (req, res, next) => (Object.hasOwn(ENTIDADES, req.params.entidad) ? next() : next('route'));
-const idValido = (req) => {
-  const id = Number(req.params.id);
-  if (!Number.isInteger(id) || id <= 0) throw new ErrorCRM('Identificador inválido.', 400);
-  return id;
-};
 
 app.get('/api/:entidad', esEntidad, requiereSesion, async (req, res) => {
   res.json(await listar(req.params.entidad, req.usuario));

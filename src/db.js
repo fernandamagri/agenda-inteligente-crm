@@ -3,7 +3,7 @@ import pg from 'pg';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { hashPassword } from './auth.js';
+import { hashPassword } from './claves.js';
 import { relativaISO } from './fechas.js';
 
 // Las fechas (tipo DATE) se leen como texto "AAAA-MM-DD", igual que las maneja la app.

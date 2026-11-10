@@ -17,6 +17,7 @@
       <label>Contraseña <input name="password" type="password" autocomplete="current-password" required></label>
       <p id="login-error" class="error" hidden></p>
       <button class="boton primario" type="submit">Ingresar</button>
+      <button type="button" class="link centrado" id="link-olvide">¿Olvidaste tu contraseña?</button>
       <div class="demo">
         <p class="sutil">Usuarios de prueba (contraseña <code>demo123</code>):</p>
         <div class="demo-usuarios">
@@ -25,6 +26,33 @@
           <button type="button" class="chip" data-email="admin@demo.com">Carla · administradora</button>
         </div>
       </div>
+    </form>
+
+    <!-- Olvidé mi contraseña -->
+    <form id="form-olvide" class="login-caja" hidden>
+      <div class="marca grande"><span class="logo"></span> Agenda Inteligente</div>
+      <h2 class="titulo-caja">¿Olvidaste tu contraseña?</h2>
+      <p class="sutil">Escribí el email con el que ingresás. La administración va a recibir tu pedido y te va a pasar una contraseña temporal.</p>
+      <label>Email <input name="email" type="email" autocomplete="username" required></label>
+      <p id="olvide-error" class="error" hidden></p>
+      <p id="olvide-ok" class="ok" hidden></p>
+      <button class="boton primario" type="submit" id="olvide-enviar">Enviar pedido</button>
+      <button type="button" class="link centrado" id="link-volver">← Volver a ingresar</button>
+    </form>
+  </section>
+
+  <!-- Cambio obligatorio de contraseña (después de una contraseña temporal) -->
+  <section id="pantalla-cambio" class="login" hidden>
+    <form id="form-cambio-obligatorio" class="login-caja">
+      <div class="marca grande"><span class="logo"></span> Agenda Inteligente</div>
+      <h2 class="titulo-caja">Elegí tu contraseña</h2>
+      <p class="sutil">Entraste con una contraseña temporal. Para seguir, elegí una propia: al menos 8 caracteres, con letras y números.</p>
+      <label>Contraseña temporal <input name="actual" type="password" autocomplete="current-password" required></label>
+      <label>Contraseña nueva <input name="nueva" type="password" autocomplete="new-password" minlength="8" required></label>
+      <label>Repetí la contraseña nueva <input name="repetir" type="password" autocomplete="new-password" minlength="8" required></label>
+      <p class="error" hidden></p>
+      <button class="boton primario" type="submit">Guardar y entrar</button>
+      <button type="button" class="link centrado" id="cambio-salir">Salir</button>
     </form>
   </section>
 
@@ -35,6 +63,7 @@
       <div class="barra-derecha">
         <span id="usuario-actual" class="usuario"></span>
         <button id="boton-chat-movil" class="boton chico">Asistente</button>
+        <button id="boton-clave" class="boton chico fantasma" title="Cambiar mi contraseña">Contraseña</button>
         <button id="boton-salir" class="boton chico fantasma">Salir</button>
       </div>
     </header>
@@ -48,6 +77,7 @@
       <button data-vista="actividades">Actividades</button>
       <button data-vista="contactos">Contactos</button>
       <button data-vista="equipo" hidden>Equipo</button>
+      <button data-vista="usuarios" hidden>Usuarios <span class="insignia" id="insignia-solicitudes" hidden></span></button>
     </nav>
 
     <main class="contenido" id="contenido"></main>
@@ -90,6 +120,68 @@
         <button type="submit" class="boton primario">Guardar</button>
       </div>
     </form>
+  </dialog>
+
+  <!-- Cambiar mi contraseña -->
+  <dialog id="dialogo-clave" class="dialogo">
+    <form id="form-clave">
+      <h2>Cambiar mi contraseña</h2>
+      <p class="sutil">Al menos 8 caracteres, con letras y números. Se cierra tu sesión en los demás dispositivos.</p>
+      <label>Contraseña actual <input name="actual" type="password" autocomplete="current-password" required></label>
+      <label>Contraseña nueva <input name="nueva" type="password" autocomplete="new-password" minlength="8" required></label>
+      <label>Repetí la contraseña nueva <input name="repetir" type="password" autocomplete="new-password" minlength="8" required></label>
+      <p class="error" hidden></p>
+      <div class="dialogo-botones">
+        <span class="espacio"></span>
+        <button type="button" class="boton fantasma" data-cerrar>Cancelar</button>
+        <button type="submit" class="boton primario">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Alta y edición de usuarios (administración) -->
+  <dialog id="dialogo-usuario" class="dialogo">
+    <form id="form-usuario">
+      <h2 id="usuario-titulo"></h2>
+      <div class="campos">
+        <label class="ancho">Nombre * <input name="nombre" required maxlength="120"></label>
+        <label class="ancho">Email * <input name="email" type="email" required maxlength="200"></label>
+        <label>Rol
+          <select name="rol">
+            <option value="vendedor">Vendedor</option>
+            <option value="admin">Administrador</option>
+          </select>
+        </label>
+      </div>
+      <p class="info" id="usuario-info"></p>
+      <p class="error" hidden></p>
+      <div class="dialogo-botones">
+        <span class="espacio"></span>
+        <button type="button" class="boton fantasma" data-cerrar>Cancelar</button>
+        <button type="submit" class="boton primario">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Contraseña temporal generada -->
+  <dialog id="dialogo-temporal" class="dialogo">
+    <div class="dialogo-cuerpo">
+      <h2>Contraseña temporal</h2>
+      <p id="temporal-para"></p>
+      <div class="temporal">
+        <code id="temporal-clave"></code>
+        <button type="button" class="boton chico" id="temporal-copiar">Copiar</button>
+      </div>
+      <p class="sutil">Pasásela a la persona por un medio privado (por ejemplo, WhatsApp). Al ingresar, la app le va a pedir que elija una contraseña propia. <strong>Esta contraseña no se vuelve a mostrar.</strong></p>
+      <label>Mensaje listo para enviar
+        <textarea id="temporal-mensaje" rows="5" readonly></textarea>
+      </label>
+      <div class="dialogo-botones">
+        <button type="button" class="boton" id="temporal-copiar-mensaje">Copiar mensaje</button>
+        <span class="espacio"></span>
+        <button type="button" class="boton primario" data-cerrar>Listo</button>
+      </div>
+    </div>
   </dialog>
 
   <div id="aviso" class="aviso" hidden></div>

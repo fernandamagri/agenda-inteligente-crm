@@ -34,6 +34,22 @@ La primera vez que arranca con una base vacía, crea las tablas y carga los dato
 - Datos: Postgres en Supabase (proyecto `agenda-inteligente-crm`). Las tablas tienen RLS activado sin políticas,
   así que la API pública de Supabase no puede leerlas: solo la app, que entra con su propia conexión.
 
+## Usuarios y contraseñas
+
+- **Altas:** solo la administración crea cuentas, desde la pantalla **Usuarios**. Al crear una cuenta se genera una
+  contraseña temporal (y un mensaje listo para mandar por WhatsApp); al ingresar, la persona tiene que elegir una propia.
+- **¿Olvidaste tu contraseña?:** desde la pantalla de ingreso se deja un pedido. La administración lo ve con un aviso,
+  genera una contraseña temporal y se la pasa a la persona. La respuesta es la misma exista o no el email, para no
+  revelar qué cuentas hay.
+- **Cambiar contraseña:** botón *Contraseña* arriba a la derecha. Mínimo 8 caracteres, con letras y números; se cierran
+  las sesiones en otros dispositivos.
+- **Desactivar:** una cuenta desactivada no puede ingresar y se cierran sus sesiones; sus datos quedan en el CRM.
+  Siempre tiene que quedar al menos un administrador activo.
+- **Seguridad:** contraseñas guardadas con scrypt; sesiones en la base (sobreviven a reinicios, duran 30 días, se guarda
+  solo un hash del token); límite de intentos fallidos de ingreso.
+- **Cuentas de prueba (@demo.com):** tienen la contraseña fija `demo123` y no se pueden cambiar ni restablecer, para que la
+  demo siempre funcione.
+
 ## Qué incluye
 
 - **Inicio**: el resumen del día con las reglas del negocio de `CONTEXT.md` (tareas vencidas, de hoy y de los
@@ -64,6 +80,9 @@ La primera vez que arranca con una base vacía, crea las tablas y carga los dato
 docs/            Diseño del asistente (instrucciones de Claude)
 server.js        Servidor web y API
 src/db.js        Conexión a Postgres y datos de ejemplo
+src/claves.js    Contraseñas (hash y temporales)
+src/sesiones.js  Sesiones e intentos de ingreso
+src/usuarios.js  Cuentas, cambio y restablecimiento de contraseñas
 src/esquema.sql  Tablas de la base de datos
 src/crm.js       Datos del CRM con permisos y resumen del día
 src/asistente.js Integración con Claude

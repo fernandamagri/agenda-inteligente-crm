@@ -141,10 +141,11 @@ export async function obtener(nombre, usuario, id) {
 }
 
 export async function listarUsuarios(usuario) {
-  const sql = 'SELECT id, nombre, email, rol FROM usuarios';
+  // Solo cuentas activas: son las que se pueden elegir como responsables.
+  const sql = 'SELECT id, nombre, email, rol FROM usuarios WHERE activo';
   return esAdmin(usuario)
     ? todos(`${sql} ORDER BY nombre`)
-    : todos(`${sql} WHERE id = :yo`, { yo: usuario.id });
+    : todos(`${sql} AND id = :yo`, { yo: usuario.id });
 }
 
 // ---------------------------------------------------------------------------
@@ -197,8 +198,8 @@ async function limpiar(e, datos, usuario, parcial) {
       }
       case 'usuario': {
         v = Number(v);
-        const u = Number.isInteger(v) && (await uno('SELECT id FROM usuarios WHERE id = :id', { id: v }));
-        if (!u) throw new ErrorCRM('El usuario elegido no existe.');
+        const u = Number.isInteger(v) && (await uno('SELECT id FROM usuarios WHERE id = :id AND activo', { id: v }));
+        if (!u) throw new ErrorCRM('El usuario elegido no existe o está desactivado.');
         break;
       }
     }
@@ -373,7 +374,7 @@ export async function fichaCliente(usuario, id) {
 
 export async function resumenEquipo(usuario) {
   if (!esAdmin(usuario)) throw new ErrorCRM('Solo el administrador puede ver el estado del equipo.', 403);
-  const vendedores = await todos("SELECT id, nombre FROM usuarios WHERE rol = 'vendedor' ORDER BY nombre");
+  const vendedores = await todos("SELECT id, nombre FROM usuarios WHERE rol = 'vendedor' AND activo ORDER BY nombre");
   return Promise.all(
     vendedores.map(async (v) => {
       const r = await calcularResumen({ id: v.id, rol: 'vendedor' });

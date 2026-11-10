@@ -15,9 +15,26 @@ async function api(metodo, url, cuerpo) {
     body: cuerpo ? JSON.stringify(cuerpo) : undefined,
   });
   const datos = await res.json().catch(() => ({}));
-  if (res.status === 401 && url !== '/api/login') mostrarLogin();
+  if (res.status === 401 && url !== '/api/login' && url !== '/api/me') mostrarLogin();
+  if (res.status === 403 && datos.debeCambiarPassword) mostrarCambioObligatorio();
   if (!res.ok) throw new Error(datos.error || `Error ${res.status}`);
   return datos;
+}
+
+async function copiar(texto) {
+  try {
+    await navigator.clipboard.writeText(texto);
+    avisar('Copiado al portapapeles.');
+  } catch {
+    avisar('No se pudo copiar. Seleccioná el texto y copialo a mano.');
+  }
+}
+
+/** Muestra el error de un formulario en su párrafo .error. */
+function errorEn(form, mensaje) {
+  const p = $('.error', form);
+  p.textContent = mensaje || '';
+  p.hidden = !mensaje;
 }
 
 function avisar(texto) {
@@ -69,20 +86,38 @@ const etiqueta = (v) => `<span class="etiqueta-estado e-${esc(v)}">${esc(ETIQUET
 const estado = { usuario: null, vista: 'inicio', filtro: '' };
 const esAdmin = () => estado.usuario?.rol === 'admin';
 
+let claveRecienUsada = ''; // para completar la contraseña temporal en el cambio obligatorio
+
+function mostrarPantalla(id) {
+  for (const p of ['pantalla-login', 'pantalla-cambio', 'pantalla-app']) $(`#${p}`).hidden = p !== id;
+}
+
 function mostrarLogin() {
   estado.usuario = null;
-  $('#pantalla-app').hidden = true;
-  $('#pantalla-login').hidden = false;
+  mostrarPantalla('pantalla-login');
+  $('#form-olvide').hidden = true;
+  $('#form-login').hidden = false;
   $('#form-login [name=email]').focus();
+}
+
+function mostrarCambioObligatorio() {
+  mostrarPantalla('pantalla-cambio');
+  const form = $('#form-cambio-obligatorio');
+  form.reset();
+  errorEn(form, '');
+  if (claveRecienUsada) form.actual.value = claveRecienUsada;
+  (claveRecienUsada ? form.nueva : form.actual).focus();
 }
 
 async function entrar(usuario) {
   estado.usuario = usuario;
-  $('#pantalla-login').hidden = true;
-  $('#pantalla-app').hidden = false;
+  if (usuario.debeCambiarPassword) return mostrarCambioObligatorio();
+  claveRecienUsada = '';
+  mostrarPantalla('pantalla-app');
   $('#usuario-actual').innerHTML = `<strong>${esc(usuario.nombre)}</strong> · ${usuario.rol === 'admin' ? 'administrador' : 'vendedor'}`;
   $('#menu [data-vista=equipo]').hidden = usuario.rol !== 'admin';
-  irA('inicio');
+  $('#menu [data-vista=usuarios]').hidden = usuario.rol !== 'admin';
+  irA('inicio'); // renderVista actualiza la insignia de pedidos
   iniciarChat();
 }
 
@@ -92,12 +127,91 @@ $('#form-login').addEventListener('submit', async (ev) => {
   const error = $('#login-error');
   error.hidden = true;
   try {
-    entrar(await api('POST', '/api/login', datos));
+    const usuario = await api('POST', '/api/login', datos);
+    claveRecienUsada = datos.password;
     ev.target.reset();
+    entrar(usuario);
   } catch (e) {
     error.textContent = e.message;
     error.hidden = false;
   }
+});
+
+// --- Olvidé mi contraseña -----------------------------------------------------
+
+$('#link-olvide').addEventListener('click', () => {
+  const form = $('#form-olvide');
+  form.reset();
+  form.email.value = $('#form-login [name=email]').value;
+  $('#olvide-ok').hidden = true;
+  $('#olvide-error').hidden = true;
+  $('#olvide-enviar').disabled = false;
+  $('#form-login').hidden = true;
+  form.hidden = false;
+  form.email.focus();
+});
+$('#link-volver').addEventListener('click', mostrarLogin);
+
+$('#form-olvide').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const email = ev.target.email.value;
+  $('#olvide-error').hidden = true;
+  try {
+    await api('POST', '/api/password/olvide', { email });
+    $('#olvide-ok').textContent =
+      'Listo. Si el email está registrado, la administración ya recibió tu pedido y te va a pasar una contraseña temporal.';
+    $('#olvide-ok').hidden = false;
+    $('#olvide-enviar').disabled = true;
+  } catch (e) {
+    $('#olvide-error').textContent = e.message;
+    $('#olvide-error').hidden = false;
+  }
+});
+
+// --- Cambio de contraseña (obligatorio o voluntario) ---------------------------
+
+async function enviarCambio(form) {
+  const { actual, nueva, repetir } = Object.fromEntries(new FormData(form));
+  if (nueva !== repetir) throw new Error('Las dos contraseñas nuevas no coinciden.');
+  await api('POST', '/api/password/cambiar', { actual, nueva });
+}
+
+$('#form-cambio-obligatorio').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  try {
+    await enviarCambio(ev.target);
+    claveRecienUsada = '';
+    avisar('Contraseña guardada. ¡Bienvenida/o!');
+    entrar(await api('GET', '/api/me'));
+  } catch (e) {
+    errorEn(ev.target, e.message);
+  }
+});
+$('#cambio-salir').addEventListener('click', () => $('#boton-salir').click());
+
+$('#boton-clave').addEventListener('click', () => {
+  const form = $('#form-clave');
+  form.reset();
+  errorEn(form, '');
+  $('#dialogo-clave').showModal();
+  form.actual.focus();
+});
+
+$('#form-clave').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  try {
+    await enviarCambio(ev.target);
+    $('#dialogo-clave').close();
+    avisar('Contraseña cambiada.');
+  } catch (e) {
+    errorEn(ev.target, e.message);
+  }
+});
+
+// Botones "Cancelar"/"Listo" de los diálogos
+document.addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-cerrar]');
+  if (b) b.closest('dialog')?.close();
 });
 
 document.querySelectorAll('.demo-usuarios .chip').forEach((b) =>
@@ -140,10 +254,12 @@ async function renderVista() {
     else if (estado.vista === 'ficha') await renderFicha(cont, estado.clienteId);
     else if (estado.vista === 'embudo') await renderEmbudo(cont);
     else if (estado.vista === 'equipo') await renderEquipo(cont);
+    else if (estado.vista === 'usuarios') await renderUsuarios(cont);
     else await renderTabla(cont, estado.vista);
   } catch (e) {
     cont.innerHTML = `<p class="error">${esc(e.message)}</p>`;
   }
+  if (esAdmin()) actualizarInsignia();
 }
 
 // ===========================================================================
@@ -726,6 +842,179 @@ async function renderEquipo(cont) {
       }).join('')}
     </div>`;
 }
+
+// ===========================================================================
+// Usuarios (administración)
+// ===========================================================================
+
+/** Insignia en el menú y aviso en Inicio cuando hay pedidos de contraseña pendientes. */
+let consultaInsignia = 0;
+async function actualizarInsignia() {
+  if (!esAdmin()) return;
+  const esta = ++consultaInsignia;
+  let pendientes = [];
+  try {
+    pendientes = await api('GET', '/api/admin/solicitudes');
+  } catch {
+    return;
+  }
+  if (esta !== consultaInsignia) return; // llegó una consulta más nueva
+  const insignia = $('#insignia-solicitudes');
+  insignia.textContent = pendientes.length;
+  insignia.hidden = !pendientes.length;
+
+  $('#aviso-solicitudes')?.remove();
+  if (pendientes.length && estado.vista === 'inicio') {
+    const aviso = document.createElement('div');
+    aviso.id = 'aviso-solicitudes';
+    aviso.className = 'banda-aviso';
+    aviso.innerHTML = `<span><strong>${pendientes.length === 1 ? '1 persona pidió' : `${pendientes.length} personas pidieron`} restablecer su contraseña:</strong> ${pendientes.map((p) => esc(p.nombre)).join(', ')}.</span>
+      <button type="button" class="boton chico primario" data-usr="ir-usuarios">Resolver</button>`;
+    $('#contenido').prepend(aviso);
+  }
+}
+
+function mostrarTemporal(resultado, esNuevo) {
+  const { usuario, passwordTemporal } = resultado;
+  const link = location.origin;
+  $('#temporal-para').innerHTML = esNuevo
+    ? `Se creó la cuenta de <strong>${esc(usuario.nombre)}</strong> (${esc(usuario.email)}).`
+    : `Nueva contraseña temporal para <strong>${esc(usuario.nombre)}</strong> (${esc(usuario.email)}).`;
+  $('#temporal-clave').textContent = passwordTemporal;
+  $('#temporal-mensaje').value = esNuevo
+    ? `Hola ${usuario.nombre.split(' ')[0]}, ya tenés tu cuenta en la Agenda Inteligente.\nEntrá a ${link}\nEmail: ${usuario.email}\nContraseña temporal: ${passwordTemporal}\nAl ingresar te va a pedir que elijas una contraseña propia.`
+    : `Hola ${usuario.nombre.split(' ')[0]}, te restablecí la contraseña de la Agenda Inteligente.\nEntrá a ${link}\nEmail: ${usuario.email}\nContraseña temporal: ${passwordTemporal}\nAl ingresar te va a pedir que elijas una contraseña nueva.`;
+  $('#dialogo-temporal').showModal();
+}
+$('#temporal-copiar').addEventListener('click', () => copiar($('#temporal-clave').textContent));
+$('#temporal-copiar-mensaje').addEventListener('click', () => copiar($('#temporal-mensaje').value));
+
+const esDemo = (email) => /@demo\.com$/i.test(email);
+
+async function renderUsuarios(cont) {
+  const [usuarios, solicitudes] = await Promise.all([api('GET', '/api/admin/usuarios'), api('GET', '/api/admin/solicitudes')]);
+  estado.usuariosAdmin = usuarios;
+  const cuando = (ts) => new Date(ts).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+  cont.innerHTML = `
+    <div class="vista-cabecera">
+      <h1>Usuarios <span class="sutil">${usuarios.filter((u) => u.activo).length} activos</span></h1>
+      <div class="herramientas"><button type="button" class="boton primario" data-usr="nuevo">Nuevo usuario</button></div>
+    </div>
+
+    ${solicitudes.length ? `
+    <section class="panel panel-alerta">
+      <h2>Pedidos de contraseña <span class="cuenta">${solicitudes.length}</span></h2>
+      <ul>${solicitudes.map((s) => `
+        <li>
+          <span class="crece"><strong>${esc(s.nombre)}</strong> · ${esc(s.email)}<div class="detalle">Lo pidió el ${esc(cuando(s.creada))}</div></span>
+          <span class="mover">
+            <button type="button" class="boton chico fantasma" data-usr="descartar" data-id="${s.id}" title="Si no lo reconocés, descartalo">Descartar</button>
+            <button type="button" class="boton chico primario" data-usr="restablecer" data-id="${s.usuario_id}">Generar contraseña temporal</button>
+          </span>
+        </li>`).join('')}</ul>
+      <p class="nota-regla">Confirmá con la persona que el pedido es suyo antes de pasarle la contraseña.</p>
+    </section>` : ''}
+
+    <div class="tabla-envoltura">
+      <table class="tabla sin-clic">
+        <thead><tr><th>Usuario</th><th>Estado</th><th class="num">Clientes</th><th></th></tr></thead>
+        <tbody>${usuarios.map((u) => {
+          const yo = u.id === estado.usuario.id;
+          const estadoTxt = !u.activo ? '<span class="etiqueta-estado">Desactivado</span>'
+            : u.debe_cambiar_password ? '<span class="etiqueta-estado e-hoy">Con contraseña temporal</span>'
+            : '<span class="etiqueta-estado e-completada">Activo</span>';
+          return `
+          <tr class="${u.activo ? '' : 'hecha'}">
+            <td><strong>${esc(u.nombre)}</strong>${yo ? ' <span class="sutil">(vos)</span>' : ''}${esDemo(u.email) ? ' <span class="sutil">· prueba</span>' : ''}${u.pidio_password ? ' <span class="etiqueta-estado e-vencida">Pidió contraseña</span>' : ''}
+              <div class="sutil">${esc(u.email)} · ${u.rol === 'admin' ? 'Administrador' : 'Vendedor'}</div></td>
+            <td>${estadoTxt}</td>
+            <td class="num">${u.clientes}</td>
+            <td class="acciones"><div class="botones-fila">
+              <button type="button" class="boton chico fantasma" data-usr="editar" data-id="${u.id}">Editar</button>
+              ${u.activo && !esDemo(u.email) ? `<button type="button" class="boton chico fantasma" data-usr="restablecer" data-id="${u.id}">Restablecer contraseña</button>` : ''}
+              ${yo ? '' : `<button type="button" class="boton chico ${u.activo ? 'fantasma peligro-texto' : ''}" data-usr="activo" data-id="${u.id}" data-activo="${u.activo ? '0' : '1'}">${u.activo ? 'Desactivar' : 'Activar'}</button>`}
+            </div></td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>
+    </div>
+    <p class="nota-regla">Las cuentas de prueba (@demo.com) tienen la contraseña fija <code>demo123</code> para que la demo siempre funcione. Al desactivar a alguien se cierra su sesión; sus clientes y tareas quedan en el CRM y podés reasignarlos desde cada registro.</p>`;
+}
+
+let usuarioEditado = null;
+
+function abrirUsuario(u) {
+  usuarioEditado = u || null;
+  const form = $('#form-usuario');
+  form.reset();
+  errorEn(form, '');
+  $('#usuario-titulo').textContent = u ? 'Editar usuario' : 'Nuevo usuario';
+  form.nombre.value = u?.nombre || '';
+  form.email.value = u?.email || '';
+  form.email.disabled = Boolean(u && esDemo(u.email));
+  form.rol.value = u?.rol || 'vendedor';
+  $('#usuario-info').textContent = u ? '' : 'Al guardar se genera una contraseña temporal para pasarle a la persona.';
+  $('#dialogo-usuario').showModal();
+  form.nombre.focus();
+}
+
+$('#form-usuario').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const form = ev.target;
+  const datos = { nombre: form.nombre.value, rol: form.rol.value };
+  if (!form.email.disabled) datos.email = form.email.value;
+  try {
+    if (usuarioEditado) {
+      await api('PUT', `/api/admin/usuarios/${usuarioEditado.id}`, datos);
+      $('#dialogo-usuario').close();
+      avisar('Usuario actualizado.');
+    } else {
+      const r = await api('POST', '/api/admin/usuarios', datos);
+      $('#dialogo-usuario').close();
+      mostrarTemporal(r, true);
+    }
+    renderVista();
+  } catch (e) {
+    errorEn(form, e.message);
+  }
+});
+
+$('#contenido').addEventListener('click', async (ev) => {
+  const b = ev.target.closest('[data-usr]');
+  if (!b) return;
+  const id = Number(b.dataset.id);
+  const u = estado.usuariosAdmin?.find((x) => x.id === id);
+  try {
+    switch (b.dataset.usr) {
+      case 'ir-usuarios':
+        return irA('usuarios');
+      case 'nuevo':
+        return abrirUsuario(null);
+      case 'editar':
+        return abrirUsuario(u);
+      case 'restablecer': {
+        const nombre = u?.nombre || 'esta persona';
+        if (!confirm(`¿Generar una contraseña temporal para ${nombre}? Su contraseña actual deja de funcionar y se cierran sus sesiones.`)) return;
+        mostrarTemporal(await api('POST', `/api/admin/usuarios/${id}/restablecer`), false);
+        return renderVista();
+      }
+      case 'activo': {
+        const activar = b.dataset.activo === '1';
+        if (!activar && !confirm(`¿Desactivar a ${u.nombre}? No va a poder ingresar y se cierra su sesión.`)) return;
+        await api('PUT', `/api/admin/usuarios/${id}`, { activo: activar });
+        avisar(activar ? 'Usuario activado.' : 'Usuario desactivado.');
+        return renderVista();
+      }
+      case 'descartar':
+        await api('POST', `/api/admin/solicitudes/${id}/descartar`);
+        avisar('Pedido descartado.');
+        return renderVista();
+    }
+  } catch (e) {
+    avisar(e.message);
+  }
+});
 
 // ===========================================================================
 // Chat con Agenda Inteligente
