@@ -1,0 +1,876 @@
+'use strict';
+
+// ===========================================================================
+// Utilidades
+// ===========================================================================
+
+const $ = (sel, raiz = document) => raiz.querySelector(sel);
+const esc = (v) =>
+  String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+async function api(metodo, url, cuerpo) {
+  const res = await fetch(url, {
+    method: metodo,
+    headers: cuerpo ? { 'Content-Type': 'application/json' } : {},
+    body: cuerpo ? JSON.stringify(cuerpo) : undefined,
+  });
+  const datos = await res.json().catch(() => ({}));
+  if (res.status === 401 && url !== '/api/login') mostrarLogin();
+  if (!res.ok) throw new Error(datos.error || `Error ${res.status}`);
+  return datos;
+}
+
+function avisar(texto) {
+  const el = $('#aviso');
+  el.textContent = texto;
+  el.hidden = false;
+  clearTimeout(avisar.t);
+  avisar.t = setTimeout(() => (el.hidden = true), 2600);
+}
+
+function hoyISO() {
+  const f = new Date();
+  return `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, '0')}-${String(f.getDate()).padStart(2, '0')}`;
+}
+function fecha(iso) {
+  if (!iso) return '<span class="falta">sin fecha</span>';
+  const [a, m, d] = iso.split('-');
+  return `${d}/${m}/${a}`;
+}
+function diasDesde(iso) {
+  if (!iso) return null;
+  const [a, m, d] = iso.split('-').map(Number);
+  const [ha, hm, hd] = hoyISO().split('-').map(Number);
+  return Math.round((new Date(ha, hm - 1, hd) - new Date(a, m - 1, d)) / 86400000);
+}
+function haceDias(n) {
+  if (n === null) return '';
+  if (n === 0) return 'hoy';
+  if (n === 1) return 'ayer';
+  return n > 0 ? `hace ${n} días` : `en ${-n} días`;
+}
+const pesos = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
+const monto = (v) => (v == null ? '<span class="falta">sin monto</span>' : pesos.format(v));
+
+const ETIQUETAS = {
+  nuevo: 'Nuevo', caliente: 'Caliente', negociacion: 'Negociación', cerrado: 'Cerrado',
+  prospecto: 'Prospecto', propuesta: 'Propuesta',
+  baja: 'Baja', media: 'Media', alta: 'Alta',
+  pendiente: 'Pendiente', en_progreso: 'En progreso', completada: 'Completada',
+  llamada: 'Llamada', reunion: 'Reunión', email: 'Email', visita: 'Visita',
+  vencida: 'Vencida', hoy: 'Hoy', frenada: 'Frenada',
+};
+const etiqueta = (v) => `<span class="etiqueta-estado e-${esc(v)}">${esc(ETIQUETAS[v] || v)}</span>`;
+
+// ===========================================================================
+// Estado y sesión
+// ===========================================================================
+
+const estado = { usuario: null, vista: 'inicio', filtro: '' };
+const esAdmin = () => estado.usuario?.rol === 'admin';
+
+function mostrarLogin() {
+  estado.usuario = null;
+  $('#pantalla-app').hidden = true;
+  $('#pantalla-login').hidden = false;
+  $('#form-login [name=email]').focus();
+}
+
+async function entrar(usuario) {
+  estado.usuario = usuario;
+  $('#pantalla-login').hidden = true;
+  $('#pantalla-app').hidden = false;
+  $('#usuario-actual').innerHTML = `<strong>${esc(usuario.nombre)}</strong> · ${usuario.rol === 'admin' ? 'administrador' : 'vendedor'}`;
+  $('#menu [data-vista=equipo]').hidden = usuario.rol !== 'admin';
+  irA('inicio');
+  iniciarChat();
+}
+
+$('#form-login').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const datos = Object.fromEntries(new FormData(ev.target));
+  const error = $('#login-error');
+  error.hidden = true;
+  try {
+    entrar(await api('POST', '/api/login', datos));
+    ev.target.reset();
+  } catch (e) {
+    error.textContent = e.message;
+    error.hidden = false;
+  }
+});
+
+document.querySelectorAll('.demo-usuarios .chip').forEach((b) =>
+  b.addEventListener('click', () => {
+    $('#form-login [name=email]').value = b.dataset.email;
+    $('#form-login [name=password]').value = 'demo123';
+    $('#form-login').requestSubmit();
+  })
+);
+
+$('#boton-salir').addEventListener('click', async () => {
+  await api('POST', '/api/logout').catch(() => {});
+  $('#chat-mensajes').innerHTML = '';
+  mostrarLogin();
+});
+
+// ===========================================================================
+// Navegación
+// ===========================================================================
+
+$('#menu').addEventListener('click', (ev) => {
+  const b = ev.target.closest('button[data-vista]');
+  if (b) irA(b.dataset.vista);
+});
+
+function irA(vista, clienteId) {
+  estado.vista = vista;
+  estado.clienteId = clienteId;
+  estado.filtro = '';
+  const resaltada = vista === 'ficha' ? 'clientes' : vista;
+  document.querySelectorAll('#menu button').forEach((b) => b.classList.toggle('activo', b.dataset.vista === resaltada));
+  $('#contenido').scrollTop = 0;
+  renderVista();
+}
+
+async function renderVista() {
+  const cont = $('#contenido');
+  try {
+    if (estado.vista === 'inicio') await renderInicio(cont);
+    else if (estado.vista === 'ficha') await renderFicha(cont, estado.clienteId);
+    else if (estado.vista === 'embudo') await renderEmbudo(cont);
+    else if (estado.vista === 'equipo') await renderEquipo(cont);
+    else await renderTabla(cont, estado.vista);
+  } catch (e) {
+    cont.innerHTML = `<p class="error">${esc(e.message)}</p>`;
+  }
+}
+
+// ===========================================================================
+// Acciones rápidas (funcionan en cualquier vista)
+// ===========================================================================
+
+const ETAPAS = ['prospecto', 'propuesta', 'negociacion', 'cerrado'];
+const siguienteEtapa = (e) => ETAPAS[ETAPAS.indexOf(e) + 1];
+const anteriorEtapa = (e) => ETAPAS[ETAPAS.indexOf(e) - 1];
+
+/** Botón que abre la ficha de un cliente. */
+const linkCliente = (id, nombre) =>
+  id && nombre ? `<button type="button" class="link" data-accion="ficha" data-id="${id}">${esc(nombre)}</button>` : '<span class="falta">—</span>';
+
+/** Casilla para completar (o reabrir) una tarea. */
+const casillaTarea = (t) =>
+  `<button type="button" class="casilla ${t.estado === 'completada' ? 'marcada' : ''}" data-accion="completar" data-id="${t.id}" data-estado="${t.estado}" title="${t.estado === 'completada' ? 'Marcar como pendiente' : 'Marcar como completada'}" aria-label="${t.estado === 'completada' ? 'Marcar como pendiente' : 'Marcar como completada'}"></button>`;
+
+/** Botones para mover una oportunidad de etapa. */
+const botonesEtapa = (o) => {
+  const ant = anteriorEtapa(o.etapa);
+  const sig = siguienteEtapa(o.etapa);
+  return `<span class="mover">${ant ? `<button type="button" class="boton chico fantasma" data-accion="etapa" data-id="${o.id}" data-etapa="${ant}" title="Volver a ${ETIQUETAS[ant]}">←</button>` : ''}${sig ? `<button type="button" class="boton chico" data-accion="etapa" data-id="${o.id}" data-etapa="${sig}" title="Pasar a ${ETIQUETAS[sig]}">${ETIQUETAS[sig]} →</button>` : ''}</span>`;
+};
+
+async function moverEtapa(id, etapa) {
+  await api('PUT', `/api/oportunidades/${id}`, { etapa });
+  avisar(`Oportunidad movida a ${ETIQUETAS[etapa]}.`);
+}
+
+$('#contenido').addEventListener('click', async (ev) => {
+  const b = ev.target.closest('[data-accion]');
+  if (!b) return;
+  ev.stopPropagation();
+  const id = Number(b.dataset.id);
+  try {
+    switch (b.dataset.accion) {
+      case 'ficha':
+        return irA('ficha', id);
+      case 'completar': {
+        const completada = b.dataset.estado !== 'completada';
+        await api('PUT', `/api/tareas/${id}`, { estado: completada ? 'completada' : 'pendiente' });
+        avisar(completada ? 'Tarea completada.' : 'Tarea marcada como pendiente.');
+        return renderVista();
+      }
+      case 'etapa':
+        await moverEtapa(id, b.dataset.etapa);
+        return renderVista();
+      case 'nuevo': {
+        const pre = {};
+        if (b.dataset.cliente) pre.cliente_id = Number(b.dataset.cliente);
+        if (b.dataset.tipo) pre.tipo = b.dataset.tipo;
+        return abrirFormulario(b.dataset.entidad, null, pre);
+      }
+      case 'editar': {
+        const registro = await api('GET', `/api/${b.dataset.entidad}`).then((l) => l.find((x) => x.id === id));
+        return abrirFormulario(b.dataset.entidad, registro);
+      }
+      case 'preguntar':
+        $('#chat').classList.add('abierto');
+        return enviar(b.dataset.pregunta);
+    }
+  } catch (e) {
+    avisar(e.message);
+  }
+});
+
+// ===========================================================================
+// Inicio: resumen del día con las reglas del negocio
+// ===========================================================================
+
+async function renderInicio(cont) {
+  const r = await api('GET', '/api/resumen');
+  const quien = (nombre) => (esAdmin() && nombre ? ` · ${esc(nombre)}` : '');
+  const lista = (items, fila, vacio) =>
+    items.length ? `<ul>${items.map(fila).join('')}</ul>` : `<p class="vacio">${vacio}</p>`;
+
+  const [a, m, d] = r.fecha.split('-');
+  const fechaHoy = new Date(a, m - 1, d).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
+
+  cont.innerHTML = `
+    <div class="vista-cabecera">
+      <h1>Hola, ${esc(estado.usuario.nombre.split(' ')[0])}</h1>
+      <span class="sutil">${esc(fechaHoy)}</span>
+    </div>
+    <div class="tarjetas">
+      <div class="tarjeta ${r.tareasVencidas.length ? 'peligro' : ''}"><div class="valor">${r.tareasVencidas.length}</div><div class="etiqueta">Tareas vencidas</div></div>
+      <div class="tarjeta ${r.tareasHoy.length ? 'alerta' : ''}"><div class="valor">${r.tareasHoy.length}</div><div class="etiqueta">Tareas para hoy</div></div>
+      <div class="tarjeta ${r.clientesSinActividad.length ? 'alerta' : ''}"><div class="valor">${r.clientesSinActividad.length}</div><div class="etiqueta">Clientes sin seguimiento</div></div>
+      <div class="tarjeta ${r.oportunidadesFrenadas.length ? 'alerta' : ''}"><div class="valor">${r.oportunidadesFrenadas.length}</div><div class="etiqueta">Oportunidades frenadas</div></div>
+      <div class="tarjeta"><div class="valor">${pesos.format(r.totales.montoAbierto)}</div><div class="etiqueta">En ${r.totales.oportunidadesAbiertas} oportunidades abiertas${r.totales.oportunidadesSinMonto ? ` (${r.totales.oportunidadesSinMonto} sin monto)` : ''}</div></div>
+    </div>
+    <div class="paneles">
+      <section class="panel">
+        <h2>Tareas vencidas <span class="cuenta">${r.tareasVencidas.length}</span></h2>
+        ${lista(r.tareasVencidas, (t) => `<li>${casillaTarea(t)}<span class="crece"><strong>${esc(t.titulo)}</strong>${t.cliente ? ` · ${linkCliente(t.cliente_id, t.cliente)}` : ''}${quien(t.asignado)}</span><span class="detalle">${t.dias_de_atraso} ${t.dias_de_atraso === 1 ? 'día' : 'días'} de atraso · ${etiqueta(t.prioridad)}</span></li>`, 'No hay tareas vencidas. ¡Bien!')}
+      </section>
+      <section class="panel">
+        <h2>Para hoy y los próximos 2 días <span class="cuenta">${r.tareasHoy.length + r.tareasProximas.length}</span></h2>
+        ${lista([...r.tareasHoy, ...r.tareasProximas], (t) => `<li>${casillaTarea(t)}<span class="crece"><strong>${esc(t.titulo)}</strong>${t.cliente ? ` · ${linkCliente(t.cliente_id, t.cliente)}` : ''}${quien(t.asignado)}</span><span class="detalle">${t.dias_para_vencer === 0 ? 'vence hoy' : `vence ${haceDias(-t.dias_para_vencer)}`} · ${etiqueta(t.prioridad)}</span></li>`, 'Nada programado para estos días.')}
+      </section>
+      <section class="panel">
+        <h2>Clientes sin seguimiento <span class="cuenta">${r.clientesSinActividad.length}</span></h2>
+        ${lista(r.clientesSinActividad, (c) => `<li><span class="crece"><strong>${linkCliente(c.id, c.nombre)}</strong> ${etiqueta(c.estado)}${quien(c.responsable)}</span><span class="detalle">${c.dias_sin_actividad === null ? 'sin actividad registrada' : `última actividad ${haceDias(c.dias_sin_actividad)}`}</span></li>`, 'Todos los clientes calientes o en negociación tienen seguimiento reciente.')}
+        <p class="nota-regla">Clientes "caliente" o "negociación" sin actividad hace más de 3 días.</p>
+      </section>
+      <section class="panel">
+        <h2>Oportunidades frenadas <span class="cuenta">${r.oportunidadesFrenadas.length}</span></h2>
+        ${lista(r.oportunidadesFrenadas, (o) => `<li><span class="crece"><strong>${esc(o.titulo)}</strong> · ${linkCliente(o.cliente_id, o.cliente)}${quien(o.responsable)}</span><span class="detalle">${o.dias_sin_cambio_de_etapa} días en ${etiqueta(o.etapa)} · ${monto(o.monto)}</span></li>`, 'No hay oportunidades frenadas.')}
+        <p class="nota-regla">Oportunidades abiertas sin cambio de etapa hace más de 14 días.</p>
+      </section>
+    </div>`;
+}
+
+// ===========================================================================
+// Tablas del CRM
+// ===========================================================================
+
+const ENTIDADES = {
+  clientes: {
+    titulo: 'Clientes', singular: 'cliente',
+    columnas: [
+      { t: 'Nombre', v: (x) => `<strong>${esc(x.nombre)}</strong>${x.empresa ? `<div class="sutil">${esc(x.empresa)}</div>` : ''}` },
+      { t: 'Estado', v: (x) => etiqueta(x.estado) },
+      { t: 'Contacto', v: (x) => [x.email, x.telefono].filter(Boolean).map(esc).join('<br>') || '<span class="falta">sin datos</span>' },
+      { t: 'Última actividad', v: (x) => (x.ultima_actividad ? `${fecha(x.ultima_actividad)}<div class="sutil">${haceDias(diasDesde(x.ultima_actividad))}</div>` : '<span class="falta">sin actividad</span>') },
+      { t: 'Responsable', v: (x) => esc(x.responsable), admin: true },
+      { t: 'Notas', v: (x) => esc(x.notas) },
+    ],
+    campos: [
+      { n: 'nombre', t: 'Nombre', req: true },
+      { n: 'empresa', t: 'Empresa (razón social)' },
+      { n: 'email', t: 'Email', tipo: 'email' },
+      { n: 'telefono', t: 'Teléfono', tipo: 'tel' },
+      { n: 'estado', t: 'Estado', opciones: ['nuevo', 'caliente', 'negociacion', 'cerrado'], def: 'nuevo' },
+      { n: 'responsable_id', t: 'Responsable', tipo: 'usuario' },
+      { n: 'notas', t: 'Notas', tipo: 'area' },
+    ],
+  },
+  oportunidades: {
+    titulo: 'Oportunidades', singular: 'oportunidad',
+    columnas: [
+      { t: 'Título', v: (x) => `<strong>${esc(x.titulo)}</strong>` },
+      { t: 'Cliente', v: (x) => linkCliente(x.cliente_id, x.cliente) },
+      { t: 'Monto', v: (x) => monto(x.monto), c: 'num' },
+      { t: 'Etapa', v: (x) => etiqueta(x.etapa) },
+      { t: 'Prob.', v: (x) => (x.probabilidad == null ? '<span class="falta">—</span>' : `${x.probabilidad} %`), c: 'num' },
+      { t: 'Cierre estimado', v: (x) => fecha(x.fecha_cierre) },
+      { t: 'Último cambio de etapa', v: (x) => `${fecha(x.fecha_cambio_etapa)}<div class="sutil">${haceDias(diasDesde(x.fecha_cambio_etapa))}</div>` },
+      { t: 'Responsable', v: (x) => esc(x.responsable), admin: true },
+      { t: '', v: (x) => botonesEtapa(x), c: 'acciones' },
+    ],
+    campos: [
+      { n: 'titulo', t: 'Título', req: true, ancho: true },
+      { n: 'cliente_id', t: 'Cliente', tipo: 'cliente', req: true },
+      { n: 'monto', t: 'Monto ($)', tipo: 'number' },
+      { n: 'etapa', t: 'Etapa', opciones: ['prospecto', 'propuesta', 'negociacion', 'cerrado'], def: 'prospecto' },
+      { n: 'probabilidad', t: 'Probabilidad (%)', tipo: 'number', min: 0, max: 100 },
+      { n: 'fecha_cierre', t: 'Fecha estimada de cierre', tipo: 'date' },
+      { n: 'responsable_id', t: 'Responsable', tipo: 'usuario' },
+    ],
+    info: 'La fecha de cambio de etapa se actualiza sola cuando cambiás la etapa.',
+  },
+  tareas: {
+    titulo: 'Tareas', singular: 'tarea',
+    columnas: [
+      { t: '', v: (x) => casillaTarea(x), c: 'col-casilla' },
+      { t: 'Tarea', v: (x) => `<strong>${esc(x.titulo)}</strong>${x.descripcion ? `<div class="sutil">${esc(x.descripcion)}</div>` : ''}` },
+      { t: 'Cliente', v: (x) => linkCliente(x.cliente_id, x.cliente) },
+      {
+        t: 'Fecha límite',
+        v: (x) => {
+          const d = diasDesde(x.fecha_limite);
+          const marca = x.estado === 'completada' || d === null ? '' : d > 0 ? ` ${etiqueta('vencida')}` : d === 0 ? ` ${etiqueta('hoy')}` : '';
+          return fecha(x.fecha_limite) + marca;
+        },
+      },
+      { t: 'Prioridad', v: (x) => etiqueta(x.prioridad) },
+      { t: 'Estado', v: (x) => etiqueta(x.estado) },
+      { t: 'Asignada a', v: (x) => esc(x.asignado), admin: true },
+    ],
+    campos: [
+      { n: 'titulo', t: 'Título', req: true, ancho: true },
+      { n: 'cliente_id', t: 'Cliente', tipo: 'cliente' },
+      { n: 'fecha_limite', t: 'Fecha límite', tipo: 'date', def: hoyISO },
+      { n: 'prioridad', t: 'Prioridad', opciones: ['baja', 'media', 'alta'], def: 'media' },
+      { n: 'estado', t: 'Estado', opciones: ['pendiente', 'en_progreso', 'completada'], def: 'pendiente' },
+      { n: 'asignado_id', t: 'Asignada a', tipo: 'usuario' },
+      { n: 'descripcion', t: 'Descripción', tipo: 'area' },
+    ],
+  },
+  actividades: {
+    titulo: 'Actividades', singular: 'actividad',
+    columnas: [
+      { t: 'Fecha', v: (x) => `${fecha(x.fecha)}<div class="sutil">${haceDias(diasDesde(x.fecha))}</div>` },
+      { t: 'Tipo', v: (x) => etiqueta(x.tipo) },
+      { t: 'Actividad', v: (x) => `<strong>${esc(x.titulo)}</strong>${x.descripcion ? `<div class="sutil">${esc(x.descripcion)}</div>` : ''}` },
+      { t: 'Cliente', v: (x) => linkCliente(x.cliente_id, x.cliente) },
+      { t: 'Responsable', v: (x) => esc(x.responsable), admin: true },
+    ],
+    campos: [
+      { n: 'titulo', t: 'Título', req: true, ancho: true },
+      { n: 'cliente_id', t: 'Cliente', tipo: 'cliente', req: true },
+      { n: 'tipo', t: 'Tipo', opciones: ['llamada', 'reunion', 'email', 'visita'], def: 'llamada' },
+      { n: 'fecha', t: 'Fecha', tipo: 'date', req: true, def: hoyISO },
+      { n: 'responsable_id', t: 'Responsable', tipo: 'usuario' },
+      { n: 'descripcion', t: 'Descripción', tipo: 'area' },
+    ],
+  },
+  contactos: {
+    titulo: 'Contactos', singular: 'contacto',
+    columnas: [
+      { t: 'Nombre', v: (x) => `<strong>${esc(x.nombre)}</strong>` },
+      { t: 'Cliente', v: (x) => linkCliente(x.cliente_id, x.cliente) },
+      { t: 'Cargo', v: (x) => esc(x.cargo) },
+      { t: 'Email', v: (x) => esc(x.email) },
+      { t: 'Teléfono', v: (x) => esc(x.telefono) },
+    ],
+    campos: [
+      { n: 'nombre', t: 'Nombre', req: true },
+      { n: 'cliente_id', t: 'Cliente', tipo: 'cliente', req: true },
+      { n: 'cargo', t: 'Cargo' },
+      { n: 'email', t: 'Email', tipo: 'email' },
+      { n: 'telefono', t: 'Teléfono', tipo: 'tel' },
+      { n: 'notas', t: 'Notas', tipo: 'area' },
+    ],
+  },
+};
+
+let filasActuales = [];
+
+async function renderTabla(cont, nombre) {
+  const def = ENTIDADES[nombre];
+  filasActuales = await api('GET', `/api/${nombre}`);
+  const columnas = def.columnas.filter((c) => !c.admin || esAdmin());
+
+  cont.innerHTML = `
+    <div class="vista-cabecera">
+      <h1>${def.titulo} <span class="sutil">${filasActuales.length}</span></h1>
+      <div class="herramientas">
+        <input type="search" id="filtro" placeholder="Buscar…" value="${esc(estado.filtro)}">
+        <button class="boton primario" id="boton-nuevo">Nuevo</button>
+      </div>
+    </div>
+    <div class="tabla-envoltura">
+      <table class="tabla">
+        <thead><tr>${columnas.map((c) => `<th class="${c.c || ''}">${c.t}</th>`).join('')}</tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>`;
+
+  const cuerpo = $('tbody', cont);
+  const pintar = () => {
+    const q = estado.filtro.toLowerCase();
+    const visibles = q
+      ? filasActuales.filter((f) => Object.values(f).some((v) => String(v ?? '').toLowerCase().includes(q)))
+      : filasActuales;
+    cuerpo.innerHTML = visibles.length
+      ? visibles.map((f) => `<tr data-id="${f.id}" class="${f.estado === 'completada' ? 'hecha' : ''}">${columnas.map((c) => `<td class="${c.c || ''}">${c.v(f)}</td>`).join('')}</tr>`).join('')
+      : `<tr><td class="vacio" colspan="${columnas.length}">${q ? 'No hay resultados para la búsqueda.' : `Todavía no hay ${def.titulo.toLowerCase()} cargados.`}</td></tr>`;
+  };
+  pintar();
+
+  $('#filtro').addEventListener('input', (ev) => { estado.filtro = ev.target.value; pintar(); });
+  $('#boton-nuevo').addEventListener('click', () => abrirFormulario(nombre));
+  cuerpo.addEventListener('click', (ev) => {
+    if (ev.target.closest('[data-accion]')) return;
+    const tr = ev.target.closest('tr[data-id]');
+    if (!tr) return;
+    if (nombre === 'clientes') irA('ficha', Number(tr.dataset.id));
+    else abrirFormulario(nombre, filasActuales.find((f) => f.id === Number(tr.dataset.id)));
+  });
+}
+
+// ===========================================================================
+// Formulario de alta y edición
+// ===========================================================================
+
+const dialogo = $('#dialogo');
+let edicion = null;
+
+async function abrirFormulario(nombre, registro, predefinidos = {}) {
+  const def = ENTIDADES[nombre];
+  edicion = { nombre, id: registro?.id };
+  const necesitaClientes = def.campos.some((c) => c.tipo === 'cliente');
+  const [clientes, usuarios] = await Promise.all([
+    necesitaClientes ? api('GET', '/api/clientes') : [],
+    esAdmin() ? api('GET', '/api/usuarios') : [],
+  ]);
+
+  const valorInicial = (c) => {
+    if (registro) return registro[c.n] ?? '';
+    if (predefinidos[c.n] != null) return predefinidos[c.n];
+    if (c.tipo === 'usuario') return estado.usuario.id;
+    return typeof c.def === 'function' ? c.def() : c.def ?? '';
+  };
+
+  const campoHtml = (c) => {
+    const v = valorInicial(c);
+    const req = c.req ? 'required' : '';
+    let control;
+    if (c.opciones) {
+      control = `<select name="${c.n}">${c.opciones.map((o) => `<option value="${o}" ${o === v ? 'selected' : ''}>${ETIQUETAS[o] || o}</option>`).join('')}</select>`;
+    } else if (c.tipo === 'cliente') {
+      control = `<select name="${c.n}" ${req}><option value="">${c.req ? 'Elegí un cliente…' : 'Sin cliente'}</option>${clientes.map((x) => `<option value="${x.id}" ${x.id === v ? 'selected' : ''}>${esc(x.nombre)}</option>`).join('')}</select>`;
+    } else if (c.tipo === 'usuario') {
+      if (!esAdmin()) return ''; // el vendedor siempre es el responsable
+      control = `<select name="${c.n}">${usuarios.map((u) => `<option value="${u.id}" ${u.id === v ? 'selected' : ''}>${esc(u.nombre)}</option>`).join('')}</select>`;
+    } else if (c.tipo === 'area') {
+      control = `<textarea name="${c.n}" rows="3">${esc(v)}</textarea>`;
+    } else {
+      const extra = [c.min != null ? `min="${c.min}"` : '', c.max != null ? `max="${c.max}"` : '', c.tipo === 'number' ? 'step="any"' : ''].join(' ');
+      control = `<input name="${c.n}" type="${c.tipo || 'text'}" value="${esc(v)}" ${req} ${extra}>`;
+    }
+    return `<label class="${c.ancho || c.tipo === 'area' ? 'ancho' : ''}">${c.t}${c.req ? ' *' : ''} ${control}</label>`;
+  };
+
+  $('#dialogo-titulo').textContent = registro ? `Editar ${def.singular}` : `Nuevo ${def.singular}`.replace('Nuevo oportunidad', 'Nueva oportunidad').replace('Nuevo tarea', 'Nueva tarea').replace('Nuevo actividad', 'Nueva actividad');
+  $('#dialogo-campos').innerHTML = def.campos.map(campoHtml).join('') + (def.info ? `<p class="info">${def.info}</p>` : '');
+  $('#dialogo-error').hidden = true;
+  $('#boton-eliminar').hidden = !registro;
+  if (necesitaClientes && !clientes.length) {
+    $('#dialogo-error').textContent = 'Primero tenés que cargar al menos un cliente.';
+    $('#dialogo-error').hidden = false;
+  }
+  dialogo.showModal();
+  $('#dialogo-campos input, #dialogo-campos select')?.focus();
+}
+
+$('#form-registro').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const datos = Object.fromEntries(new FormData(ev.target));
+  try {
+    if (edicion.id) await api('PUT', `/api/${edicion.nombre}/${edicion.id}`, datos);
+    else await api('POST', `/api/${edicion.nombre}`, datos);
+    dialogo.close();
+    avisar('Guardado.');
+    renderVista();
+  } catch (e) {
+    $('#dialogo-error').textContent = e.message;
+    $('#dialogo-error').hidden = false;
+  }
+});
+
+$('#boton-cancelar').addEventListener('click', () => dialogo.close());
+
+$('#boton-eliminar').addEventListener('click', async () => {
+  const def = ENTIDADES[edicion.nombre];
+  const aviso = edicion.nombre === 'clientes' ? ' También se borran sus contactos, oportunidades, tareas y actividades.' : '';
+  if (!confirm(`¿Eliminar este registro de ${def.titulo.toLowerCase()}?${aviso}`)) return;
+  try {
+    await api('DELETE', `/api/${edicion.nombre}/${edicion.id}`);
+    dialogo.close();
+    avisar('Eliminado.');
+    if (edicion.nombre === 'clientes' && estado.vista === 'ficha') irA('clientes');
+    else renderVista();
+  } catch (e) {
+    $('#dialogo-error').textContent = e.message;
+    $('#dialogo-error').hidden = false;
+  }
+});
+
+// ===========================================================================
+// Ficha de cliente
+// ===========================================================================
+
+async function renderFicha(cont, id) {
+  const f = await api('GET', `/api/clientes/${id}/ficha`);
+  const c = f.cliente;
+  const pendientes = f.tareas.filter((t) => t.estado !== 'completada');
+  const hechas = f.tareas.filter((t) => t.estado === 'completada');
+  const abiertas = f.oportunidades.filter((o) => o.etapa !== 'cerrado');
+  const dato = (titulo, valor) => `<div><dt>${titulo}</dt><dd>${valor || '<span class="falta">sin dato</span>'}</dd></div>`;
+  const nuevo = (entidad, texto, extra = '') =>
+    `<button type="button" class="boton chico" data-accion="nuevo" data-entidad="${entidad}" data-cliente="${c.id}" ${extra}>${texto}</button>`;
+
+  const filaTarea = (t) => {
+    const d = t.dias_de_atraso ? `<span class="detalle">${etiqueta('vencida')} hace ${t.dias_de_atraso} ${t.dias_de_atraso === 1 ? 'día' : 'días'}</span>`
+      : t.dias_para_vencer === 0 ? `<span class="detalle">${etiqueta('hoy')}</span>`
+      : `<span class="detalle">${fecha(t.fecha_limite)}</span>`;
+    return `<li class="${t.estado === 'completada' ? 'hecha' : ''}">${casillaTarea(t)}<button type="button" class="link crece" data-accion="editar" data-entidad="tareas" data-id="${t.id}">${esc(t.titulo)}</button>${t.estado === 'completada' ? '' : d} ${etiqueta(t.prioridad)}</li>`;
+  };
+
+  const ICONOS = { llamada: '📞', reunion: '🤝', email: '✉️', visita: '🚗' };
+
+  cont.innerHTML = `
+    <div class="migas"><button type="button" class="link" onclick="irA('clientes')">← Clientes</button></div>
+    <div class="vista-cabecera">
+      <h1>${esc(c.nombre)} ${etiqueta(c.estado)}</h1>
+      <div class="herramientas">
+        <button type="button" class="boton" data-accion="preguntar" data-pregunta="¿Qué hago con ${esc(c.nombre)}?">Preguntar al asistente</button>
+        <button type="button" class="boton" data-accion="editar" data-entidad="clientes" data-id="${c.id}">Editar</button>
+      </div>
+    </div>
+
+    ${f.proximoPaso ? `
+    <section class="proximo-paso">
+      <div class="pp-etiqueta">Próximo paso sugerido</div>
+      <div class="pp-accion">${esc(f.proximoPaso.accion)}</div>
+      <div class="pp-detalle"><strong>${esc(f.proximoPaso.plazo)}</strong> · ${esc(f.proximoPaso.motivo)}</div>
+      <p class="nota-regla">Sugerencia según el estado del cliente (reglas del negocio). La decisión es tuya.</p>
+    </section>` : ''}
+
+    <div class="ficha">
+      <div class="ficha-col">
+        <section class="panel">
+          <h2>Datos</h2>
+          <dl class="datos">
+            ${dato('Empresa', esc(c.empresa))}
+            ${dato('Email', c.email ? `<a href="mailto:${esc(c.email)}">${esc(c.email)}</a>` : '')}
+            ${dato('Teléfono', esc(c.telefono))}
+            ${dato('Responsable', esc(c.responsable))}
+            ${dato('Última actividad', c.ultima_actividad ? `${fecha(c.ultima_actividad)} (${haceDias(c.dias_sin_actividad)})` : '')}
+            ${c.notas ? dato('Notas', esc(c.notas)) : ''}
+          </dl>
+        </section>
+
+        <section class="panel">
+          <h2>Contactos <span class="cuenta">${f.contactos.length}</span><span class="espacio"></span>${nuevo('contactos', '+ Contacto')}</h2>
+          ${f.contactos.length ? `<ul>${f.contactos.map((p) => `<li><span class="crece"><button type="button" class="link" data-accion="editar" data-entidad="contactos" data-id="${p.id}"><strong>${esc(p.nombre)}</strong></button>${p.cargo ? ` · ${esc(p.cargo)}` : ''}</span><span class="detalle">${[p.email, p.telefono].filter(Boolean).map(esc).join(' · ')}</span></li>`).join('')}</ul>` : '<p class="vacio">No hay contactos cargados.</p>'}
+        </section>
+
+        <section class="panel">
+          <h2>Oportunidades <span class="cuenta">${abiertas.length} abiertas</span><span class="espacio"></span>${nuevo('oportunidades', '+ Oportunidad')}</h2>
+          ${f.oportunidades.length ? `<ul>${f.oportunidades.map((o) => `
+            <li class="opo">
+              <div class="crece">
+                <button type="button" class="link" data-accion="editar" data-entidad="oportunidades" data-id="${o.id}"><strong>${esc(o.titulo)}</strong></button>
+                <div class="detalle">${monto(o.monto)} · ${etiqueta(o.etapa)}${o.probabilidad != null ? ` · ${o.probabilidad} %` : ''}${o.etapa !== 'cerrado' && o.dias_sin_cambio_de_etapa > 14 ? ` · <span class="etiqueta-estado e-vencida">Frenada: ${o.dias_sin_cambio_de_etapa} días</span>` : ''}</div>
+              </div>
+              ${botonesEtapa(o)}
+            </li>`).join('')}</ul>` : '<p class="vacio">No hay oportunidades.</p>'}
+        </section>
+      </div>
+
+      <div class="ficha-col">
+        <section class="panel">
+          <h2>Tareas <span class="cuenta">${pendientes.length} pendientes</span><span class="espacio"></span>${nuevo('tareas', '+ Tarea')}</h2>
+          ${pendientes.length ? `<ul>${pendientes.map(filaTarea).join('')}</ul>` : '<p class="vacio">No hay tareas pendientes.</p>'}
+          ${hechas.length ? `<details class="hechas"><summary>${hechas.length} completada${hechas.length === 1 ? '' : 's'}</summary><ul>${hechas.map(filaTarea).join('')}</ul></details>` : ''}
+        </section>
+
+        <section class="panel">
+          <h2>Historial <span class="cuenta">${f.actividades.length}</span></h2>
+          <div class="registrar">
+            <span class="sutil">Registrar:</span>
+            ${['llamada', 'reunion', 'email', 'visita'].map((t) => nuevo('actividades', `${ICONOS[t]} ${ETIQUETAS[t]}`, `data-tipo="${t}"`)).join('')}
+          </div>
+          ${f.actividades.length ? `<ol class="linea-tiempo">${f.actividades.map((a) => `
+            <li>
+              <span class="lt-icono" aria-hidden="true">${ICONOS[a.tipo] || '•'}</span>
+              <div>
+                <button type="button" class="link" data-accion="editar" data-entidad="actividades" data-id="${a.id}"><strong>${esc(a.titulo)}</strong></button>
+                <div class="detalle">${ETIQUETAS[a.tipo]} · ${fecha(a.fecha)} (${haceDias(diasDesde(a.fecha))})${esAdmin() ? ` · ${esc(a.responsable)}` : ''}</div>
+                ${a.descripcion ? `<div>${esc(a.descripcion)}</div>` : ''}
+              </div>
+            </li>`).join('')}</ol>` : '<p class="vacio">Todavía no hay actividades registradas.</p>'}
+        </section>
+      </div>
+    </div>`;
+}
+
+// ===========================================================================
+// Embudo de ventas
+// ===========================================================================
+
+async function renderEmbudo(cont) {
+  const opos = await api('GET', '/api/oportunidades');
+  const total = (lista) => lista.reduce((s, o) => s + (o.monto || 0), 0);
+  const ponderado = opos.filter((o) => o.etapa !== 'cerrado').reduce((s, o) => s + (o.monto || 0) * ((o.probabilidad ?? 0) / 100), 0);
+
+  cont.innerHTML = `
+    <div class="vista-cabecera">
+      <h1>Embudo de ventas</h1>
+      <div class="herramientas">
+        <span class="sutil">Pronóstico ponderado: <strong>${pesos.format(ponderado)}</strong></span>
+        <button type="button" class="boton primario" data-accion="nuevo" data-entidad="oportunidades">Nueva</button>
+      </div>
+    </div>
+    <p class="sutil ayuda">Arrastrá una tarjeta a otra columna o usá las flechas para cambiar la etapa.</p>
+    <div class="embudo">
+      ${ETAPAS.map((etapa) => {
+        const lista = opos.filter((o) => o.etapa === etapa);
+        const sinMonto = lista.filter((o) => o.monto == null).length;
+        return `
+        <section class="columna" data-etapa="${etapa}">
+          <header>
+            <div>${etiqueta(etapa)} <span class="cuenta">${lista.length}</span></div>
+            <div class="col-total">${pesos.format(total(lista))}${sinMonto ? ` <span class="sutil">(+${sinMonto} sin monto)</span>` : ''}</div>
+          </header>
+          <div class="tarjetas-col">
+            ${lista.map((o) => {
+              const frenada = etapa !== 'cerrado' && o.dias_sin_cambio_de_etapa > 14;
+              const dias = diasDesde(o.fecha_cambio_etapa);
+              return `
+              <article class="opo-tarjeta ${frenada ? 'frenada' : ''}" draggable="true" data-id="${o.id}">
+                <button type="button" class="link" data-accion="editar" data-entidad="oportunidades" data-id="${o.id}"><strong>${esc(o.titulo)}</strong></button>
+                <div>${linkCliente(o.cliente_id, o.cliente)}${esAdmin() ? ` · <span class="sutil">${esc(o.responsable)}</span>` : ''}</div>
+                <div class="opo-monto">${monto(o.monto)}${o.probabilidad != null ? ` <span class="sutil">· ${o.probabilidad} %</span>` : ''}</div>
+                <div class="sutil">${dias === 0 ? 'En esta etapa desde hoy' : `${dias} ${dias === 1 ? 'día' : 'días'} en esta etapa`}${frenada ? ' · <span class="etiqueta-estado e-vencida">Frenada</span>' : ''}</div>
+                ${botonesEtapa(o)}
+              </article>`;
+            }).join('') || '<p class="vacio">Sin oportunidades</p>'}
+          </div>
+        </section>`;
+      }).join('')}
+    </div>`;
+
+  // Arrastrar y soltar entre columnas
+  cont.querySelectorAll('.opo-tarjeta').forEach((t) =>
+    t.addEventListener('dragstart', (ev) => {
+      ev.dataTransfer.setData('text/plain', t.dataset.id);
+      t.classList.add('arrastrando');
+    })
+  );
+  cont.querySelectorAll('.opo-tarjeta').forEach((t) => t.addEventListener('dragend', () => t.classList.remove('arrastrando')));
+  cont.querySelectorAll('.columna').forEach((col) => {
+    col.addEventListener('dragover', (ev) => { ev.preventDefault(); col.classList.add('destino'); });
+    col.addEventListener('dragleave', () => col.classList.remove('destino'));
+    col.addEventListener('drop', async (ev) => {
+      ev.preventDefault();
+      col.classList.remove('destino');
+      const id = Number(ev.dataTransfer.getData('text/plain'));
+      const opo = opos.find((o) => o.id === id);
+      if (!opo || opo.etapa === col.dataset.etapa) return;
+      try {
+        await moverEtapa(id, col.dataset.etapa);
+      } catch (e) {
+        avisar(e.message);
+      }
+      renderVista();
+    });
+  });
+}
+
+// ===========================================================================
+// Estado del equipo (administrador)
+// ===========================================================================
+
+async function renderEquipo(cont) {
+  const equipo = await api('GET', '/api/equipo');
+  const alerta = (n, clase = 'peligro') => `<span class="${n ? `num-${clase}` : ''}">${n}</span>`;
+
+  cont.innerHTML = `
+    <div class="vista-cabecera"><h1>Estado del equipo</h1></div>
+    <div class="tabla-envoltura">
+      <table class="tabla sin-clic">
+        <thead><tr>
+          <th>Vendedor</th><th class="num">Clientes</th><th class="num">Tareas pendientes</th><th class="num">Tareas vencidas</th>
+          <th class="num">Sin seguimiento</th><th class="num">Oport. abiertas</th><th class="num">Monto abierto</th><th class="num">Frenadas</th>
+        </tr></thead>
+        <tbody>${equipo.map((v) => `
+          <tr>
+            <td><strong>${esc(v.nombre)}</strong></td>
+            <td class="num">${v.clientes}</td>
+            <td class="num">${v.tareasPendientes}</td>
+            <td class="num">${alerta(v.tareasVencidas.length)}</td>
+            <td class="num">${alerta(v.clientesSinActividad.length, 'alerta')}</td>
+            <td class="num">${v.oportunidadesAbiertas}</td>
+            <td class="num">${pesos.format(v.montoAbierto)}${v.oportunidadesSinMonto ? `<div class="sutil">${v.oportunidadesSinMonto} sin monto</div>` : ''}</td>
+            <td class="num">${alerta(v.oportunidadesFrenadas.length, 'alerta')}</td>
+          </tr>`).join('') || '<tr><td class="vacio" colspan="8">No hay vendedores cargados.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="subtitulo">Alertas por vendedor</h2>
+    <div class="paneles">
+      ${equipo.map((v) => {
+        const items = [
+          ...v.tareasVencidas.map((t) => `<li><span class="crece">${etiqueta('vencida')} <strong>${esc(t.titulo)}</strong>${t.cliente ? ` · ${linkCliente(t.cliente_id, t.cliente)}` : ''}</span><span class="detalle">${t.dias_de_atraso} ${t.dias_de_atraso === 1 ? 'día' : 'días'} de atraso</span></li>`),
+          ...v.oportunidadesFrenadas.map((o) => `<li><span class="crece">${etiqueta('frenada')} <strong>${esc(o.titulo)}</strong> · ${linkCliente(o.cliente_id, o.cliente)}</span><span class="detalle">${o.dias_sin_cambio_de_etapa} días sin cambio</span></li>`),
+          ...v.clientesSinActividad.map((c) => `<li><span class="crece">${etiqueta(c.estado)} ${linkCliente(c.id, c.nombre)}</span><span class="detalle">${c.dias_sin_actividad === null ? 'sin actividad' : `${c.dias_sin_actividad} días sin actividad`}</span></li>`),
+        ];
+        return `
+        <section class="panel">
+          <h2>${esc(v.nombre)} <span class="cuenta">${items.length} ${items.length === 1 ? 'alerta' : 'alertas'}</span></h2>
+          ${items.length ? `<ul>${items.join('')}</ul>` : '<p class="vacio">Sin alertas. ¡Todo al día!</p>'}
+        </section>`;
+      }).join('')}
+    </div>`;
+}
+
+// ===========================================================================
+// Chat con Agenda Inteligente
+// ===========================================================================
+
+const chat = { ocupado: false, configurado: true };
+const zonaMensajes = $('#chat-mensajes');
+const entrada = $('#chat-entrada');
+
+function agregarMensaje(clase, html) {
+  const el = document.createElement('div');
+  el.className = `msg ${clase}`;
+  el.innerHTML = html;
+  zonaMensajes.appendChild(el);
+  zonaMensajes.scrollTop = zonaMensajes.scrollHeight;
+  return el;
+}
+
+function bienvenida() {
+  const nombre = esc(estado.usuario.nombre.split(' ')[0]);
+  agregarMensaje(
+    'asistente bienvenida',
+    `<p>¡Hola, <strong>${nombre}</strong>! Soy tu asistente comercial. Puedo armarte la agenda del día, sugerirte el próximo paso con un cliente, resumirte un cliente, redactarte borradores de mensajes o avisarte qué está atrasado.</p><p>Leo el CRM pero nunca lo modifico ni envío mensajes: la decisión siempre es tuya.</p>`
+  );
+  if (!chat.configurado) {
+    agregarMensaje('error', '<p class="error">Falta configurar la clave de la API de Claude. Copiá <code>.env.example</code> como <code>.env</code>, completá <code>ANTHROPIC_API_KEY</code> y reiniciá la app. El resto del CRM funciona igual.</p>');
+  }
+}
+
+async function iniciarChat() {
+  zonaMensajes.innerHTML = '';
+  try {
+    const e = await api('GET', '/api/asistente/estado');
+    chat.configurado = e.configurado;
+    $('#chat-modelo').textContent = e.modelo;
+  } catch { /* se informa al enviar */ }
+  bienvenida();
+  $('#chat-sugerencias').hidden = false;
+}
+
+function botonCopiar(burbuja, texto) {
+  const pie = document.createElement('div');
+  pie.className = 'msg-pie';
+  pie.innerHTML = '<button type="button">Copiar</button>';
+  pie.firstChild.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(texto);
+      avisar('Copiado al portapapeles.');
+    } catch {
+      avisar('No se pudo copiar.');
+    }
+  });
+  burbuja.appendChild(pie);
+}
+
+async function enviar(texto) {
+  texto = texto.trim();
+  if (!texto || chat.ocupado) return;
+  chat.ocupado = true;
+  $('#chat-enviar').disabled = true;
+  $('#chat-sugerencias').hidden = true;
+  entrada.value = '';
+
+  agregarMensaje('usuario', esc(texto));
+  const burbuja = agregarMensaje('asistente', '<span class="escribiendo"><span></span><span></span><span></span></span>');
+  let acumulado = '';
+  let pendiente = false;
+  const pintar = () => {
+    pendiente = false;
+    burbuja.innerHTML = window.markdownAHtml(acumulado);
+    zonaMensajes.scrollTop = zonaMensajes.scrollHeight;
+  };
+
+  try {
+    const res = await fetch('/api/asistente', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mensaje: texto }),
+    });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      if (res.status === 401) mostrarLogin();
+      throw new Error(e.error || `Error ${res.status}`);
+    }
+
+    const lector = res.body.getReader();
+    const decodificador = new TextDecoder();
+    let buffer = '';
+    let terminado = false;
+    while (!terminado) {
+      const { value, done } = await lector.read();
+      if (done) break;
+      buffer += decodificador.decode(value, { stream: true });
+      const eventos = buffer.split('\n\n');
+      buffer = eventos.pop();
+      for (const bloque of eventos) {
+        const linea = bloque.split('\n').find((l) => l.startsWith('data: '));
+        if (!linea) continue;
+        const ev = JSON.parse(linea.slice(6));
+        if (ev.type === 'text') {
+          acumulado += ev.text;
+          if (!pendiente) { pendiente = true; requestAnimationFrame(pintar); }
+        } else if (ev.type === 'reset') {
+          acumulado = '';
+        } else if (ev.type === 'aviso') {
+          agregarMensaje('sistema', esc(ev.text));
+        } else if (ev.type === 'error') {
+          throw new Error(ev.message);
+        } else if (ev.type === 'done') {
+          terminado = true;
+        }
+      }
+    }
+    pintar();
+    if (!acumulado.trim()) burbuja.innerHTML = '<span class="falta">(sin respuesta)</span>';
+    else botonCopiar(burbuja, acumulado);
+  } catch (e) {
+    if (acumulado.trim()) pintar();
+    else burbuja.remove();
+    agregarMensaje('error', `<p class="error">${esc(e.message)}</p>`);
+  } finally {
+    chat.ocupado = false;
+    $('#chat-enviar').disabled = false;
+    entrada.focus();
+  }
+}
+
+$('#chat-form').addEventListener('submit', (ev) => { ev.preventDefault(); enviar(entrada.value); });
+entrada.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); enviar(entrada.value); }
+});
+$('#chat-sugerencias').addEventListener('click', (ev) => {
+  const b = ev.target.closest('.chip');
+  if (b) enviar(b.textContent);
+});
+$('#boton-reiniciar').addEventListener('click', async () => {
+  if (chat.ocupado) return;
+  await api('POST', '/api/asistente/reiniciar').catch(() => {});
+  iniciarChat();
+});
+$('#boton-chat-movil').addEventListener('click', () => { $('#chat').classList.add('abierto'); entrada.focus(); });
+$('#boton-cerrar-chat').addEventListener('click', () => $('#chat').classList.remove('abierto'));
+
+// ===========================================================================
+// Arranque
+// ===========================================================================
+
+api('GET', '/api/me').then(entrar).catch(mostrarLogin);

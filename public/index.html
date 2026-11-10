@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agenda Inteligente · CRM</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%232f6fed'/><path d='M9 11h14M9 16h14M9 21h9' stroke='white' stroke-width='2.5' stroke-linecap='round'/></svg>">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Inicio de sesión -->
+  <section id="pantalla-login" class="login" hidden>
+    <form id="form-login" class="login-caja">
+      <div class="marca grande"><span class="logo"></span> Agenda Inteligente</div>
+      <p class="sutil">El asistente comercial de tu CRM</p>
+      <label>Email <input name="email" type="email" autocomplete="username" required></label>
+      <label>Contraseña <input name="password" type="password" autocomplete="current-password" required></label>
+      <p id="login-error" class="error" hidden></p>
+      <button class="boton primario" type="submit">Ingresar</button>
+      <div class="demo">
+        <p class="sutil">Usuarios de prueba (contraseña <code>demo123</code>):</p>
+        <div class="demo-usuarios">
+          <button type="button" class="chip" data-email="ana@demo.com">Ana · vendedora</button>
+          <button type="button" class="chip" data-email="luis@demo.com">Luis · vendedor</button>
+          <button type="button" class="chip" data-email="admin@demo.com">Carla · administradora</button>
+        </div>
+      </div>
+    </form>
+  </section>
+
+  <!-- Aplicación -->
+  <div id="pantalla-app" class="app" hidden>
+    <header class="barra">
+      <div class="marca"><span class="logo"></span> Agenda Inteligente</div>
+      <div class="barra-derecha">
+        <span id="usuario-actual" class="usuario"></span>
+        <button id="boton-chat-movil" class="boton chico">Asistente</button>
+        <button id="boton-salir" class="boton chico fantasma">Salir</button>
+      </div>
+    </header>
+
+    <nav class="menu" id="menu">
+      <button data-vista="inicio" class="activo">Inicio</button>
+      <button data-vista="clientes">Clientes</button>
+      <button data-vista="embudo">Embudo</button>
+      <button data-vista="oportunidades">Oportunidades</button>
+      <button data-vista="tareas">Tareas</button>
+      <button data-vista="actividades">Actividades</button>
+      <button data-vista="contactos">Contactos</button>
+      <button data-vista="equipo" hidden>Equipo</button>
+    </nav>
+
+    <main class="contenido" id="contenido"></main>
+
+    <aside class="chat" id="chat">
+      <div class="chat-cabecera">
+        <div>
+          <strong>Asistente</strong>
+          <span class="sutil" id="chat-modelo"></span>
+        </div>
+        <div class="chat-acciones">
+          <button id="boton-reiniciar" class="boton chico fantasma" title="Empezar una conversación nueva">Nueva charla</button>
+          <button id="boton-cerrar-chat" class="boton chico fantasma solo-movil" aria-label="Cerrar">✕</button>
+        </div>
+      </div>
+      <div class="chat-mensajes" id="chat-mensajes" aria-live="polite"></div>
+      <div class="chat-sugerencias" id="chat-sugerencias">
+        <button class="chip">¿Qué hago hoy?</button>
+        <button class="chip">¿Qué tengo atrasado?</button>
+        <button class="chip">Contame de Acme</button>
+        <button class="chip">Armame un WhatsApp para Globex por la propuesta</button>
+      </div>
+      <form class="chat-form" id="chat-form">
+        <textarea id="chat-entrada" rows="2" placeholder="Preguntale algo a tu asistente…" maxlength="4000"></textarea>
+        <button class="boton primario" type="submit" id="chat-enviar">Enviar</button>
+      </form>
+    </aside>
+  </div>
+
+  <!-- Formulario de alta/edición -->
+  <dialog id="dialogo" class="dialogo">
+    <form id="form-registro" method="dialog">
+      <h2 id="dialogo-titulo"></h2>
+      <div id="dialogo-campos" class="campos"></div>
+      <p id="dialogo-error" class="error" hidden></p>
+      <div class="dialogo-botones">
+        <button type="button" id="boton-eliminar" class="boton peligro">Eliminar</button>
+        <span class="espacio"></span>
+        <button type="button" id="boton-cancelar" class="boton fantasma">Cancelar</button>
+        <button type="submit" class="boton primario">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="aviso" class="aviso" hidden></div>
+
+  <script src="markdown.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
