@@ -29,7 +29,8 @@ La primera vez que arranca con una base vacía, crea las tablas y carga los dato
 
 ## Online
 
-- App: <https://agenda-inteligente-crm.onrender.com> (Render, se actualiza sola con cada cambio en `main`).
+- App: <https://agenda-inteligente-crm.onrender.com> (Render). Cada cambio que se sube a la rama `main` de GitHub
+  se publica solo en uno o dos minutos.
 - Datos: Postgres en Supabase (proyecto `agenda-inteligente-crm`). Las tablas tienen RLS activado sin políticas,
   así que la API pública de Supabase no puede leerlas: solo la app, que entra con su propia conexión.
 
