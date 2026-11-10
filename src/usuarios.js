@@ -165,6 +165,38 @@ export async function restablecerPassword(admin, id) {
   return { usuario: { id: u.id, nombre: u.nombre, email: u.email }, passwordTemporal: temporal };
 }
 
+/**
+ * Borra una cuenta. Solo si no tiene nada a su cargo: así no se pierden ni quedan
+ * huérfanos clientes, oportunidades, tareas o actividades.
+ */
+export async function borrarUsuario(admin, id) {
+  exigirAdmin(admin);
+  const u = await uno('SELECT id, nombre, email, rol, activo FROM usuarios WHERE id = :id', { id });
+  if (!u) throw new ErrorCRM('No se encontró el usuario.', 404);
+  if (id === admin.id) throw new ErrorCRM('No podés borrar tu propia cuenta.');
+  if (esCuentaDemo(u.email)) throw new ErrorCRM('Las cuentas de prueba no se pueden borrar: las usa la demo.');
+  if (u.rol === 'admin' && u.activo && (await contarAdminsActivos(id)) === 0) {
+    throw new ErrorCRM('Tiene que quedar al menos un administrador activo.');
+  }
+
+  const c = await uno(
+    `SELECT (SELECT COUNT(*)::int FROM clientes WHERE responsable_id = :id) AS clientes,
+            (SELECT COUNT(*)::int FROM oportunidades WHERE responsable_id = :id) AS oportunidades,
+            (SELECT COUNT(*)::int FROM tareas WHERE asignado_id = :id) AS tareas,
+            (SELECT COUNT(*)::int FROM actividades WHERE responsable_id = :id) AS actividades`,
+    { id }
+  );
+  const SINGULAR = { clientes: 'cliente', oportunidades: 'oportunidad', tareas: 'tarea', actividades: 'actividad' };
+  const aCargo = Object.entries(c).filter(([, n]) => n > 0).map(([que, n]) => `${n} ${n === 1 ? SINGULAR[que] : que}`);
+  if (aCargo.length) {
+    throw new ErrorCRM(
+      `${u.nombre} tiene a su cargo ${aCargo.join(', ')}. Reasignalos a otra persona o desactivá la cuenta en lugar de borrarla.`
+    );
+  }
+  // Sesiones y pedidos de contraseña se borran solos (ON DELETE CASCADE).
+  await ejecutar('DELETE FROM usuarios WHERE id = :id', { id });
+}
+
 export async function descartarSolicitud(admin, id) {
   exigirAdmin(admin);
   await ejecutar("UPDATE solicitudes_password SET estado = 'descartada', resuelta = now() WHERE id = :id AND estado = 'pendiente'", { id });

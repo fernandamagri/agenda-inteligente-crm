@@ -4,6 +4,31 @@ CRM de ventas con **Agenda Inteligente**, el asistente comercial diseñado en la
 El asistente funciona con Claude y usa como instrucciones los documentos `LEGEND.md`, `AGENTS.md`,
 `CONTEXT.md` y `TASK.md`, tal cual están escritos.
 
+## Cómo probarla
+
+**App online:** <https://agenda-inteligente-crm.onrender.com>
+(la primera visita puede tardar hasta un minuto: el servidor gratuito se "duerme" si nadie lo usa).
+
+En la pantalla de ingreso hay un botón para cada usuario de prueba. La contraseña de todos es `demo123`.
+
+| Usuario | Rol | Qué probar |
+|---|---|---|
+| **Ana** · `ana@demo.com` | Vendedora | Que solo ve **sus** clientes (entre ellos Acme y Globex): Initech y Hooli son de Luis y no aparecen. **Inicio** arma su día con las reglas de prioridad. En **Clientes → Acme**, la ficha muestra el próximo paso sugerido. Completar una tarea con un clic. Mover una oportunidad en el **Embudo**. |
+| **Luis** · `luis@demo.com` | Vendedor | Lo mismo con su cartera (entre ellos Initech, Hooli y Stark): no ve nada de Ana. |
+| **Carla** · `admin@demo.com` | Administradora | Ve todo el CRM. **Equipo**: métricas y alertas de cada vendedor. **Usuarios**: crear una cuenta (genera una contraseña temporal), restablecer contraseñas, desactivar y borrar cuentas. |
+
+**Recuperar una contraseña:** creá un usuario como Carla, salí, tocá **"¿Olvidaste tu contraseña?"** con el email de ese
+usuario y volvé a entrar como Carla: el pedido aparece en **Inicio** y en **Usuarios**. Al generar la contraseña temporal,
+el usuario entra con ella y la app le pide elegir una propia. (Las cuentas de prueba tienen la contraseña fija y no
+participan de este flujo.)
+
+**Asistente (panel derecho):** tiene las sugerencias "¿Qué hago hoy?", "¿Qué tengo atrasado?", etc. Necesita crédito en la
+API de Claude: sin crédito responde *"Por ahora no contamos con el asistente disponible"*, y el resto del CRM funciona igual.
+
+**Sobre los casos de [`docs/TESTING.md`](docs/TESTING.md):** los datos de ejemplo de Ana son los de esa tabla, cargados el
+10/11/2026. Los días ("vencida hace 1 día", "21 días sin cambio de etapa") se calculan con la fecha real, así que en
+otro día los números avanzan; y como la base es compartida, también puede haber datos cargados durante las pruebas.
+
 ## Cómo ejecutarla
 
 Requisitos: Node.js 22.13 o superior y una base de datos Postgres (por ejemplo, Supabase).

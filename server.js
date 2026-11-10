@@ -9,7 +9,7 @@ import {
 } from './src/sesiones.js';
 import { ENTIDADES, ErrorCRM, actualizar, calcularResumen, crear, eliminar, fichaCliente, listar, listarUsuarios, resumenEquipo } from './src/crm.js';
 import {
-  actualizarUsuario, cambiarPassword, crearUsuario, descartarSolicitud, listarSolicitudes,
+  actualizarUsuario, borrarUsuario, cambiarPassword, crearUsuario, descartarSolicitud, listarSolicitudes,
   listarUsuariosAdmin, pedirRestablecimiento, restablecerPassword,
 } from './src/usuarios.js';
 import { MODELO, conversar, credencialesConfiguradas } from './src/asistente.js';
@@ -113,6 +113,10 @@ app.post('/api/admin/usuarios', requiereSesion, async (req, res) => res.status(2
 app.put('/api/admin/usuarios/:id', requiereSesion, async (req, res) =>
   res.json(await actualizarUsuario(req.usuario, idValido(req), req.body || {}))
 );
+app.delete('/api/admin/usuarios/:id', requiereSesion, async (req, res) => {
+  await borrarUsuario(req.usuario, idValido(req));
+  res.json({ ok: true });
+});
 app.post('/api/admin/usuarios/:id/restablecer', requiereSesion, async (req, res) =>
   res.json(await restablecerPassword(req.usuario, idValido(req)))
 );

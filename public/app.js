@@ -886,6 +886,12 @@ function mostrarTemporal(resultado, esNuevo) {
     : `Hola ${usuario.nombre.split(' ')[0]}, te restablecí la contraseña de la Agenda Inteligente.\nEntrá a ${link}\nEmail: ${usuario.email}\nContraseña temporal: ${passwordTemporal}\nAl ingresar te va a pedir que elijas una contraseña nueva.`;
   $('#dialogo-temporal').showModal();
 }
+// Al cerrar, la contraseña temporal no queda guardada en la página.
+$('#dialogo-temporal').addEventListener('close', () => {
+  $('#temporal-para').textContent = '';
+  $('#temporal-clave').textContent = '';
+  $('#temporal-mensaje').value = '';
+});
 $('#temporal-copiar').addEventListener('click', () => copiar($('#temporal-clave').textContent));
 $('#temporal-copiar-mensaje').addEventListener('click', () => copiar($('#temporal-mensaje').value));
 
@@ -934,12 +940,13 @@ async function renderUsuarios(cont) {
               <button type="button" class="boton chico fantasma" data-usr="editar" data-id="${u.id}">Editar</button>
               ${u.activo && !esDemo(u.email) ? `<button type="button" class="boton chico fantasma" data-usr="restablecer" data-id="${u.id}">Restablecer contraseña</button>` : ''}
               ${yo ? '' : `<button type="button" class="boton chico ${u.activo ? 'fantasma peligro-texto' : ''}" data-usr="activo" data-id="${u.id}" data-activo="${u.activo ? '0' : '1'}">${u.activo ? 'Desactivar' : 'Activar'}</button>`}
+              ${yo || esDemo(u.email) ? '' : `<button type="button" class="boton chico fantasma peligro-texto" data-usr="borrar" data-id="${u.id}" title="Borrar definitivamente">Borrar</button>`}
             </div></td>
           </tr>`;
         }).join('')}</tbody>
       </table>
     </div>
-    <p class="nota-regla">Las cuentas de prueba (@demo.com) tienen la contraseña fija <code>demo123</code> para que la demo siempre funcione. Al desactivar a alguien se cierra su sesión; sus clientes y tareas quedan en el CRM y podés reasignarlos desde cada registro.</p>`;
+    <p class="nota-regla">Las cuentas de prueba (@demo.com) tienen la contraseña fija <code>demo123</code> para que la demo siempre funcione. Al desactivar a alguien se cierra su sesión; sus clientes y tareas quedan en el CRM y podés reasignarlos desde cada registro. Solo se puede <strong>borrar</strong> una cuenta que no tenga nada a su cargo.</p>`;
 }
 
 let usuarioEditado = null;
@@ -1004,6 +1011,12 @@ $('#contenido').addEventListener('click', async (ev) => {
         if (!activar && !confirm(`¿Desactivar a ${u.nombre}? No va a poder ingresar y se cierra su sesión.`)) return;
         await api('PUT', `/api/admin/usuarios/${id}`, { activo: activar });
         avisar(activar ? 'Usuario activado.' : 'Usuario desactivado.');
+        return renderVista();
+      }
+      case 'borrar': {
+        if (!confirm(`¿Borrar definitivamente la cuenta de ${u.nombre} (${u.email})? Esto no se puede deshacer.`)) return;
+        await api('DELETE', `/api/admin/usuarios/${id}`);
+        avisar('Usuario borrado.');
         return renderVista();
       }
       case 'descartar':
