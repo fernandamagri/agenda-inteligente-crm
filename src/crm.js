@@ -1,5 +1,5 @@
 // Acceso a los datos del CRM con permisos: el vendedor solo ve y toca lo suyo; el administrador, todo.
-import { db } from './db.js';
+import { ejecutar, todos, uno } from './db.js';
 import { diasDesde, esFechaValida, hoyISO } from './fechas.js';
 
 export class ErrorCRM extends Error {
@@ -45,7 +45,7 @@ export const ENTIDADES = {
                (SELECT MAX(a.fecha) FROM actividades a WHERE a.cliente_id = x.id) AS ultima_actividad
              FROM clientes x JOIN usuarios u ON u.id = x.responsable_id`,
     filtroVendedor: 'x.responsable_id = :yo',
-    orden: 'x.nombre COLLATE NOCASE',
+    orden: 'lower(x.nombre)',
   },
   contactos: {
     tabla: 'contactos',
@@ -60,7 +60,7 @@ export const ENTIDADES = {
     dueno: null,
     select: `SELECT x.*, c.nombre AS cliente FROM contactos x JOIN clientes c ON c.id = x.cliente_id`,
     filtroVendedor: 'c.responsable_id = :yo',
-    orden: 'c.nombre COLLATE NOCASE, x.nombre COLLATE NOCASE',
+    orden: 'lower(c.nombre), lower(x.nombre)',
   },
   oportunidades: {
     tabla: 'oportunidades',
@@ -77,7 +77,7 @@ export const ENTIDADES = {
     select: `SELECT x.*, c.nombre AS cliente, u.nombre AS responsable
              FROM oportunidades x JOIN clientes c ON c.id = x.cliente_id JOIN usuarios u ON u.id = x.responsable_id`,
     filtroVendedor: 'x.responsable_id = :yo',
-    orden: 'x.fecha_cierre IS NULL, x.fecha_cierre',
+    orden: 'x.fecha_cierre IS NULL, x.fecha_cierre, x.id',
   },
   tareas: {
     tabla: 'tareas',
@@ -94,7 +94,7 @@ export const ENTIDADES = {
     select: `SELECT x.*, c.nombre AS cliente, u.nombre AS asignado
              FROM tareas x LEFT JOIN clientes c ON c.id = x.cliente_id JOIN usuarios u ON u.id = x.asignado_id`,
     filtroVendedor: 'x.asignado_id = :yo',
-    orden: "x.estado = 'completada', x.fecha_limite IS NULL, x.fecha_limite",
+    orden: "x.estado = 'completada', x.fecha_limite IS NULL, x.fecha_limite, x.id",
   },
   actividades: {
     tabla: 'actividades',
@@ -124,36 +124,34 @@ function entidad(nombre) {
 // Lectura
 // ---------------------------------------------------------------------------
 
-export function listar(nombre, usuario) {
+export async function listar(nombre, usuario) {
   const e = entidad(nombre);
-  if (esAdmin(usuario)) {
-    return db.prepare(`${e.select} ORDER BY ${e.orden}`).all();
-  }
-  return db.prepare(`${e.select} WHERE ${e.filtroVendedor} ORDER BY ${e.orden}`).all({ yo: usuario.id });
+  if (esAdmin(usuario)) return todos(`${e.select} ORDER BY ${e.orden}`);
+  return todos(`${e.select} WHERE ${e.filtroVendedor} ORDER BY ${e.orden}`, { yo: usuario.id });
 }
 
-export function obtener(nombre, usuario, id) {
+export async function obtener(nombre, usuario, id) {
   const e = entidad(nombre);
   const fila = esAdmin(usuario)
-    ? db.prepare(`${e.select} WHERE x.id = :id`).get({ id })
-    : db.prepare(`${e.select} WHERE x.id = :id AND ${e.filtroVendedor}`).get({ id, yo: usuario.id });
+    ? await uno(`${e.select} WHERE x.id = :id`, { id })
+    : await uno(`${e.select} WHERE x.id = :id AND ${e.filtroVendedor}`, { id, yo: usuario.id });
   // Mismo mensaje exista o no: un vendedor no debe enterarse de registros ajenos.
   if (!fila) throw new ErrorCRM('No se encontró el registro entre tus datos.', 404);
   return fila;
 }
 
-export function listarUsuarios(usuario) {
+export async function listarUsuarios(usuario) {
   const sql = 'SELECT id, nombre, email, rol FROM usuarios';
   return esAdmin(usuario)
-    ? db.prepare(`${sql} ORDER BY nombre`).all()
-    : db.prepare(`${sql} WHERE id = ?`).all(usuario.id);
+    ? todos(`${sql} ORDER BY nombre`)
+    : todos(`${sql} WHERE id = :yo`, { yo: usuario.id });
 }
 
 // ---------------------------------------------------------------------------
 // Escritura
 // ---------------------------------------------------------------------------
 
-function limpiar(e, datos, usuario, parcial) {
+async function limpiar(e, datos, usuario, parcial) {
   const salida = {};
   for (const [campo, def] of Object.entries(e.campos)) {
     if (!(campo in datos)) {
@@ -191,7 +189,7 @@ function limpiar(e, datos, usuario, parcial) {
         break;
       case 'cliente': {
         v = Number(v);
-        const c = db.prepare('SELECT responsable_id FROM clientes WHERE id = ?').get(v);
+        const c = Number.isInteger(v) && (await uno('SELECT responsable_id FROM clientes WHERE id = :id', { id: v }));
         if (!c || (!esAdmin(usuario) && c.responsable_id !== usuario.id)) {
           throw new ErrorCRM('El cliente elegido no está entre tus clientes.');
         }
@@ -199,7 +197,7 @@ function limpiar(e, datos, usuario, parcial) {
       }
       case 'usuario': {
         v = Number(v);
-        const u = db.prepare('SELECT id FROM usuarios WHERE id = ?').get(v);
+        const u = Number.isInteger(v) && (await uno('SELECT id FROM usuarios WHERE id = :id', { id: v }));
         if (!u) throw new ErrorCRM('El usuario elegido no existe.');
         break;
       }
@@ -215,35 +213,36 @@ function limpiar(e, datos, usuario, parcial) {
   return salida;
 }
 
-export function crear(nombre, usuario, datos) {
+export async function crear(nombre, usuario, datos) {
   const e = entidad(nombre);
-  const valores = limpiar(e, datos || {}, usuario, false);
+  const valores = await limpiar(e, datos || {}, usuario, false);
   if (nombre === 'oportunidades') valores.fecha_cambio_etapa = hoyISO();
   const cols = Object.keys(valores);
-  const info = db
-    .prepare(`INSERT INTO ${e.tabla} (${cols.join(', ')}) VALUES (${cols.map((c) => ':' + c).join(', ')})`)
-    .run(valores);
-  return obtener(nombre, usuario, Number(info.lastInsertRowid));
+  const fila = await uno(
+    `INSERT INTO ${e.tabla} (${cols.join(', ')}) VALUES (${cols.map((c) => ':' + c).join(', ')}) RETURNING id`,
+    valores
+  );
+  return obtener(nombre, usuario, fila.id);
 }
 
-export function actualizar(nombre, usuario, id, datos) {
+export async function actualizar(nombre, usuario, id, datos) {
   const e = entidad(nombre);
-  const actual = obtener(nombre, usuario, id); // valida permiso
-  const valores = limpiar(e, datos || {}, usuario, true);
+  const actual = await obtener(nombre, usuario, id); // valida permiso
+  const valores = await limpiar(e, datos || {}, usuario, true);
   if (nombre === 'oportunidades' && valores.etapa && valores.etapa !== actual.etapa) {
     valores.fecha_cambio_etapa = hoyISO();
   }
   const cols = Object.keys(valores);
   if (cols.length) {
-    db.prepare(`UPDATE ${e.tabla} SET ${cols.map((c) => `${c} = :${c}`).join(', ')} WHERE id = :id`).run({ ...valores, id });
+    await ejecutar(`UPDATE ${e.tabla} SET ${cols.map((c) => `${c} = :${c}`).join(', ')} WHERE id = :id`, { ...valores, id });
   }
   return obtener(nombre, usuario, id);
 }
 
-export function eliminar(nombre, usuario, id) {
+export async function eliminar(nombre, usuario, id) {
   const e = entidad(nombre);
-  obtener(nombre, usuario, id); // valida permiso
-  db.prepare(`DELETE FROM ${e.tabla} WHERE id = ?`).run(id);
+  await obtener(nombre, usuario, id); // valida permiso
+  await ejecutar(`DELETE FROM ${e.tabla} WHERE id = :id`, { id });
 }
 
 // ---------------------------------------------------------------------------
@@ -272,10 +271,15 @@ export function conDias(nombre, fila) {
   return f;
 }
 
-export function calcularResumen(usuario) {
-  const tareas = listar('tareas', usuario).map((t) => conDias('tareas', t)).filter((t) => t.estado !== 'completada');
-  const clientes = listar('clientes', usuario).map((c) => conDias('clientes', c));
-  const oportunidades = listar('oportunidades', usuario).map((o) => conDias('oportunidades', o));
+export async function calcularResumen(usuario) {
+  const [filasTareas, filasClientes, filasOpos] = await Promise.all([
+    listar('tareas', usuario),
+    listar('clientes', usuario),
+    listar('oportunidades', usuario),
+  ]);
+  const tareas = filasTareas.map((t) => conDias('tareas', t)).filter((t) => t.estado !== 'completada');
+  const clientes = filasClientes.map((c) => conDias('clientes', c));
+  const oportunidades = filasOpos.map((o) => conDias('oportunidades', o));
 
   const tareasVencidas = tareas.filter((t) => t.dias_de_atraso > 0).sort((a, b) => b.dias_de_atraso - a.dias_de_atraso);
   const tareasHoy = tareas.filter((t) => t.dias_para_vencer === 0);
@@ -353,36 +357,34 @@ export function proximoPaso(cliente, oportunidades) {
   return null;
 }
 
-export function fichaCliente(usuario, id) {
-  const cliente = conDias('clientes', obtener('clientes', usuario, id)); // valida permiso
-  const deCliente = (nombre) => listar(nombre, usuario).filter((f) => f.cliente_id === id).map((f) => conDias(nombre, f));
-  const oportunidades = deCliente('oportunidades');
-  return {
-    cliente,
-    contactos: deCliente('contactos'),
-    oportunidades,
-    tareas: deCliente('tareas'),
-    actividades: deCliente('actividades'),
-    proximoPaso: proximoPaso(cliente, oportunidades),
-  };
+export async function fichaCliente(usuario, id) {
+  const cliente = conDias('clientes', await obtener('clientes', usuario, id)); // valida permiso
+  const deCliente = async (nombre) =>
+    (await listar(nombre, usuario)).filter((f) => f.cliente_id === id).map((f) => conDias(nombre, f));
+  const [contactos, oportunidades, tareas, actividades] = await Promise.all(
+    ['contactos', 'oportunidades', 'tareas', 'actividades'].map(deCliente)
+  );
+  return { cliente, contactos, oportunidades, tareas, actividades, proximoPaso: proximoPaso(cliente, oportunidades) };
 }
 
 // ---------------------------------------------------------------------------
 // Vista de equipo (solo administrador)
 // ---------------------------------------------------------------------------
 
-export function resumenEquipo(usuario) {
+export async function resumenEquipo(usuario) {
   if (!esAdmin(usuario)) throw new ErrorCRM('Solo el administrador puede ver el estado del equipo.', 403);
-  const vendedores = db.prepare("SELECT id, nombre FROM usuarios WHERE rol = 'vendedor' ORDER BY nombre").all();
-  return vendedores.map((v) => {
-    const r = calcularResumen({ id: v.id, rol: 'vendedor' });
-    return {
-      id: v.id,
-      nombre: v.nombre,
-      ...r.totales,
-      tareasVencidas: r.tareasVencidas,
-      clientesSinActividad: r.clientesSinActividad,
-      oportunidadesFrenadas: r.oportunidadesFrenadas,
-    };
-  });
+  const vendedores = await todos("SELECT id, nombre FROM usuarios WHERE rol = 'vendedor' ORDER BY nombre");
+  return Promise.all(
+    vendedores.map(async (v) => {
+      const r = await calcularResumen({ id: v.id, rol: 'vendedor' });
+      return {
+        id: v.id,
+        nombre: v.nombre,
+        ...r.totales,
+        tareasVencidas: r.tareasVencidas,
+        clientesSinActividad: r.clientesSinActividad,
+        oportunidadesFrenadas: r.oportunidadesFrenadas,
+      };
+    })
+  );
 }

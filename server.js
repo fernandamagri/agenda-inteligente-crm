@@ -1,7 +1,7 @@
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { db } from './src/db.js';
+import { prepararBase, uno } from './src/db.js';
 import { COOKIE, cerrarSesion, crearSesion, leerCookie, obtenerSesion, verificarPassword } from './src/auth.js';
 import { ENTIDADES, ErrorCRM, actualizar, calcularResumen, crear, eliminar, fichaCliente, listar, listarUsuarios, resumenEquipo } from './src/crm.js';
 import { MODELO, conversar, credencialesConfiguradas } from './src/asistente.js';
@@ -16,13 +16,13 @@ app.use(express.static(path.join(aqui, 'public')));
 // --- Sesión -----------------------------------------------------------------
 
 function usuarioPorId(id) {
-  return db.prepare('SELECT id, nombre, email, rol FROM usuarios WHERE id = ?').get(id);
+  return uno('SELECT id, nombre, email, rol FROM usuarios WHERE id = :id', { id });
 }
 
-function requiereSesion(req, res, next) {
+async function requiereSesion(req, res, next) {
   const token = leerCookie(req, COOKIE);
   const sesion = obtenerSesion(token);
-  const usuario = sesion && usuarioPorId(sesion.usuarioId);
+  const usuario = sesion && (await usuarioPorId(sesion.usuarioId));
   if (!usuario) return res.status(401).json({ error: 'Tenés que iniciar sesión.' });
   req.token = token;
   req.sesion = sesion;
@@ -30,9 +30,9 @@ function requiereSesion(req, res, next) {
   next();
 }
 
-app.post('/api/login', (req, res) => {
+app.post('/api/login', async (req, res) => {
   const { email, password } = req.body || {};
-  const fila = db.prepare('SELECT * FROM usuarios WHERE email = ?').get(String(email || '').trim().toLowerCase());
+  const fila = await uno('SELECT * FROM usuarios WHERE email = :email', { email: String(email || '').trim().toLowerCase() });
   if (!fila || !verificarPassword(String(password || ''), fila.password_hash)) {
     return res.status(401).json({ error: 'Email o contraseña incorrectos.' });
   }
@@ -51,10 +51,10 @@ app.get('/api/me', requiereSesion, (req, res) => res.json(req.usuario));
 
 // --- CRM ----------------------------------------------------------------------
 
-app.get('/api/usuarios', requiereSesion, (req, res) => res.json(listarUsuarios(req.usuario)));
-app.get('/api/resumen', requiereSesion, (req, res) => res.json(calcularResumen(req.usuario)));
-app.get('/api/equipo', requiereSesion, (req, res) => res.json(resumenEquipo(req.usuario)));
-app.get('/api/clientes/:id/ficha', requiereSesion, (req, res) => res.json(fichaCliente(req.usuario, idValido(req))));
+app.get('/api/usuarios', requiereSesion, async (req, res) => res.json(await listarUsuarios(req.usuario)));
+app.get('/api/resumen', requiereSesion, async (req, res) => res.json(await calcularResumen(req.usuario)));
+app.get('/api/equipo', requiereSesion, async (req, res) => res.json(await resumenEquipo(req.usuario)));
+app.get('/api/clientes/:id/ficha', requiereSesion, async (req, res) => res.json(await fichaCliente(req.usuario, idValido(req))));
 
 // Solo las entidades conocidas pasan; el resto sigue a las rutas siguientes.
 const esEntidad = (req, res, next) => (Object.hasOwn(ENTIDADES, req.params.entidad) ? next() : next('route'));
@@ -64,17 +64,17 @@ const idValido = (req) => {
   return id;
 };
 
-app.get('/api/:entidad', esEntidad, requiereSesion, (req, res) => {
-  res.json(listar(req.params.entidad, req.usuario));
+app.get('/api/:entidad', esEntidad, requiereSesion, async (req, res) => {
+  res.json(await listar(req.params.entidad, req.usuario));
 });
-app.post('/api/:entidad', esEntidad, requiereSesion, (req, res) => {
-  res.status(201).json(crear(req.params.entidad, req.usuario, req.body));
+app.post('/api/:entidad', esEntidad, requiereSesion, async (req, res) => {
+  res.status(201).json(await crear(req.params.entidad, req.usuario, req.body));
 });
-app.put('/api/:entidad/:id', esEntidad, requiereSesion, (req, res) => {
-  res.json(actualizar(req.params.entidad, req.usuario, idValido(req), req.body));
+app.put('/api/:entidad/:id', esEntidad, requiereSesion, async (req, res) => {
+  res.json(await actualizar(req.params.entidad, req.usuario, idValido(req), req.body));
 });
-app.delete('/api/:entidad/:id', esEntidad, requiereSesion, (req, res) => {
-  eliminar(req.params.entidad, req.usuario, idValido(req));
+app.delete('/api/:entidad/:id', esEntidad, requiereSesion, async (req, res) => {
+  await eliminar(req.params.entidad, req.usuario, idValido(req));
   res.json({ ok: true });
 });
 
@@ -125,6 +125,14 @@ app.use((err, req, res, next) => {
   console.error(err);
   res.status(500).json({ error: 'Error interno del servidor.' });
 });
+
+try {
+  await prepararBase();
+} catch (err) {
+  console.error('\nNo se pudo conectar con la base de datos:', err.message);
+  console.error('Revisá DATABASE_URL (en el archivo .env o en las variables de entorno de Render).\n');
+  process.exit(1);
+}
 
 app.listen(PUERTO, (err) => {
   // En Express 5 los errores al abrir el puerto llegan a este mismo callback.

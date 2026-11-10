@@ -6,11 +6,11 @@ El asistente funciona con Claude y usa como instrucciones los documentos `LEGEND
 
 ## Cómo ejecutarla
 
-Requisitos: Node.js 22.13 o superior.
+Requisitos: Node.js 22.13 o superior y una base de datos Postgres (por ejemplo, Supabase).
 
 ```bash
 npm install
-cp .env.example .env      # y completá ANTHROPIC_API_KEY
+cp .env.example .env      # y completá DATABASE_URL y ANTHROPIC_API_KEY
 npm start
 ```
 
@@ -24,7 +24,14 @@ Abrí <http://localhost:3000>. Usuarios de prueba (contraseña `demo123`):
 
 Sin clave de API el CRM funciona igual; solo el chat del asistente no responde.
 
-`npm run reset-db` vuelve la base a los datos de ejemplo.
+La primera vez que arranca con una base vacía, crea las tablas y carga los datos de ejemplo.
+`npm run reset-db -- --confirmar` borra todo y vuelve a los datos de ejemplo (ojo: es la misma base que usa la app online).
+
+## Online
+
+- App: <https://agenda-inteligente-crm.onrender.com> (Render, se actualiza sola con cada cambio en `main`).
+- Datos: Postgres en Supabase (proyecto `agenda-inteligente-crm`). Las tablas tienen RLS activado sin políticas,
+  así que la API pública de Supabase no puede leerlas: solo la app, que entra con su propia conexión.
 
 ## Qué incluye
 
@@ -55,7 +62,8 @@ Sin clave de API el CRM funciona igual; solo el chat del asistente no responde.
 ```
 docs/            Diseño del asistente (instrucciones de Claude)
 server.js        Servidor web y API
-src/db.js        Base de datos SQLite y datos de ejemplo
+src/db.js        Conexión a Postgres y datos de ejemplo
+src/esquema.sql  Tablas de la base de datos
 src/crm.js       Datos del CRM con permisos y resumen del día
 src/asistente.js Integración con Claude
 public/          Interfaz web

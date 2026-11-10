@@ -36,20 +36,23 @@ function cargarSistema() {
 const SISTEMA = cargarSistema();
 
 /** Foto del CRM visible para el usuario, con los días ya calculados. */
-export function fotoCRM(usuario) {
+export async function fotoCRM(usuario) {
   const sinIds = (fila) => {
     const { password_hash, responsable_id, asignado_id, cliente_id, ...resto } = fila;
     return resto;
   };
-  const tabla = (nombre) => listar(nombre, usuario).map((f) => sinIds(conDias(nombre, f)));
+  const tabla = async (nombre) => (await listar(nombre, usuario)).map((f) => sinIds(conDias(nombre, f)));
+  const [clientes, contactos, oportunidades, tareas, actividades] = await Promise.all(
+    ['clientes', 'contactos', 'oportunidades', 'tareas', 'actividades'].map(tabla)
+  );
   return {
     fecha_de_hoy: `${fechaLarga(hoyISO())} (${hoyISO()})`,
     usuario: { nombre: usuario.nombre, rol: usuario.rol === 'admin' ? 'administrador' : 'vendedor' },
-    clientes: tabla('clientes'),
-    contactos: tabla('contactos'),
-    oportunidades: tabla('oportunidades'),
-    tareas: tabla('tareas'),
-    actividades: tabla('actividades'),
+    clientes,
+    contactos,
+    oportunidades,
+    tareas,
+    actividades,
   };
 }
 
@@ -103,10 +106,19 @@ export async function conversar(sesion, usuario, mensaje, emitir, señal) {
     emitir({ type: 'aviso', text: 'La conversación era muy larga, así que empecé una nueva.' });
   }
 
+  let foto;
+  try {
+    foto = await fotoCRM(usuario);
+  } catch (err) {
+    console.error('[asistente] no se pudieron leer los datos del CRM', err);
+    emitir({ type: 'error', message: 'No se pudieron leer los datos del CRM. Probá de nuevo en un momento.' });
+    return;
+  }
+
   const turnoUsuario = {
     role: 'user',
     content: [
-      { type: 'text', text: `<datos_crm>\n${JSON.stringify(fotoCRM(usuario), null, 1)}\n</datos_crm>` },
+      { type: 'text', text: `<datos_crm>\n${JSON.stringify(foto, null, 1)}\n</datos_crm>` },
       { type: 'text', text: mensaje },
     ],
   };
