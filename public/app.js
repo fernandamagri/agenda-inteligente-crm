@@ -986,7 +986,7 @@ async function renderUsuarios(cont) {
             <td class="acciones"><div class="botones-fila">
               <button type="button" class="boton chico fantasma" data-usr="editar" data-id="${u.id}">Editar</button>
               ${u.activo && !esDemo(u.email) ? `<button type="button" class="boton chico fantasma" data-usr="restablecer" data-id="${u.id}">Restablecer contraseña</button>` : ''}
-              ${yo ? '' : `<button type="button" class="boton chico ${u.activo ? 'fantasma peligro-texto' : ''}" data-usr="activo" data-id="${u.id}" data-activo="${u.activo ? '0' : '1'}">${u.activo ? 'Desactivar' : 'Activar'}</button>`}
+              ${yo || (esDemo(u.email) && u.activo) ? '' : `<button type="button" class="boton chico ${u.activo ? 'fantasma peligro-texto' : ''}" data-usr="activo" data-id="${u.id}" data-activo="${u.activo ? '0' : '1'}">${u.activo ? 'Desactivar' : 'Activar'}</button>`}
               ${yo || esDemo(u.email) ? '' : `<button type="button" class="boton chico fantasma peligro-texto" data-usr="borrar" data-id="${u.id}" title="Borrar definitivamente">Borrar</button>`}
             </div></td>
           </tr>`;
@@ -1007,6 +1007,7 @@ function abrirUsuario(u) {
   form.nombre.value = u?.nombre || '';
   form.email.value = u?.email || '';
   form.email.disabled = Boolean(u && esDemo(u.email));
+  form.rol.disabled = Boolean(u && esDemo(u.email));
   form.rol.value = u?.rol || 'vendedor';
   $('#usuario-info').textContent = u ? '' : 'Al guardar se genera una contraseña temporal para pasarle a la persona.';
   $('#dialogo-usuario').showModal();
@@ -1016,7 +1017,8 @@ function abrirUsuario(u) {
 $('#form-usuario').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const form = ev.target;
-  const datos = { nombre: form.nombre.value, rol: form.rol.value };
+  const datos = { nombre: form.nombre.value };
+  if (!form.rol.disabled) datos.rol = form.rol.value;
   if (!form.email.disabled) datos.email = form.email.value;
   try {
     if (usuarioEditado) {

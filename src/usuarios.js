@@ -129,6 +129,9 @@ export async function actualizarUsuario(admin, id, datos) {
   if (esCuentaDemo(actual.email) && email !== actual.email) {
     throw new ErrorCRM('No se puede cambiar el email de una cuenta de prueba.');
   }
+  if (esCuentaDemo(actual.email) && (!activo || rol !== actual.rol)) {
+    throw new ErrorCRM('Las cuentas de prueba no se pueden desactivar ni cambiar de rol: las usa la demo.');
+  }
   // Que nunca quede el sistema sin un administrador activo.
   if (actual.rol === 'admin' && actual.activo && (rol !== 'admin' || !activo) && (await contarAdminsActivos(id)) === 0) {
     throw new ErrorCRM('Tiene que quedar al menos un administrador activo.');
