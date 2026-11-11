@@ -86,6 +86,14 @@ La primera vez que arranca con una base vacía, crea las tablas y carga los dato
   y avanzar oportunidades de etapa.
 - **Embudo de ventas**: oportunidades por etapa, con totales y pronóstico ponderado; se mueven arrastrando o con flechas.
 - **Equipo** (solo administrador): métricas y alertas de cada vendedor.
+- **Gráficos** en Inicio: monto por etapa del embudo, actividades por semana y (administración) monto abierto por
+  vendedor. Cada uno tiene su tooltip y un "Ver como tabla".
+- **Búsqueda global** en la barra superior (Ctrl+K): busca en clientes, contactos, oportunidades, tareas y actividades,
+  sin importar acentos, y solo entre los datos que cada usuario puede ver.
+- **Exportar a Excel**: cada sección tiene su botón, y en Inicio "Descargar todo en Excel" arma un archivo con una hoja
+  por sección. Cada usuario exporta solo lo suyo.
+- **Recordatorio de tareas vencidas**: al entrar, si tenés tareas vencidas aparece un aviso (una vez por día) y el
+  menú *Tareas* muestra cuántas son.
 - **Clientes, Oportunidades, Tareas, Actividades y Contactos**: alta, edición, baja y búsqueda.
 - **Asistente**: chat en tiempo real con las 5 tareas de `TASK.md`.
 
@@ -108,6 +116,8 @@ src/db.js        Conexión a Postgres y datos de ejemplo
 src/claves.js    Contraseñas (hash y temporales)
 src/sesiones.js  Sesiones e intentos de ingreso
 src/usuarios.js  Cuentas, cambio y restablecimiento de contraseñas
+src/buscar.js    Búsqueda global
+src/exportar.js  Exportación a Excel
 src/esquema.sql  Tablas de la base de datos
 src/crm.js       Datos del CRM con permisos y resumen del día
 src/asistente.js Integración con Claude

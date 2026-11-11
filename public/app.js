@@ -64,6 +64,7 @@ function haceDias(n) {
   if (n === null) return '';
   if (n === 0) return 'hoy';
   if (n === 1) return 'ayer';
+  if (n === -1) return 'mañana';
   return n > 0 ? `hace ${n} días` : `en ${-n} días`;
 }
 const pesos = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
@@ -94,6 +95,9 @@ function mostrarPantalla(id) {
 
 function mostrarLogin() {
   estado.usuario = null;
+  $('#buscar').value = '';
+  $('#buscar-resultados').hidden = true;
+  $('#insignia-vencidas').hidden = true;
   mostrarPantalla('pantalla-login');
   $('#form-olvide').hidden = true;
   $('#form-login').hidden = false;
@@ -119,6 +123,7 @@ async function entrar(usuario) {
   $('#menu [data-vista=usuarios]').hidden = usuario.rol !== 'admin';
   irA('inicio'); // renderVista actualiza la insignia de pedidos
   iniciarChat();
+  revisarVencidas(true);
 }
 
 $('#form-login').addEventListener('submit', async (ev) => {
@@ -260,6 +265,7 @@ async function renderVista() {
     cont.innerHTML = `<p class="error">${esc(e.message)}</p>`;
   }
   if (esAdmin()) actualizarInsignia();
+  revisarVencidas(false);
 }
 
 // ===========================================================================
@@ -332,7 +338,11 @@ $('#contenido').addEventListener('click', async (ev) => {
 // ===========================================================================
 
 async function renderInicio(cont) {
-  const r = await api('GET', '/api/resumen');
+  const [r, opos, actividades] = await Promise.all([
+    api('GET', '/api/resumen'),
+    api('GET', '/api/oportunidades'),
+    api('GET', '/api/actividades'),
+  ]);
   const quien = (nombre) => (esAdmin() && nombre ? ` · ${esc(nombre)}` : '');
   const lista = (items, fila, vacio) =>
     items.length ? `<ul>${items.map(fila).join('')}</ul>` : `<p class="vacio">${vacio}</p>`;
@@ -343,7 +353,10 @@ async function renderInicio(cont) {
   cont.innerHTML = `
     <div class="vista-cabecera">
       <h1>Hola, ${esc(estado.usuario.nombre.split(' ')[0])}</h1>
-      <span class="sutil">${esc(fechaHoy)}</span>
+      <div class="herramientas">
+        <span class="sutil">${esc(fechaHoy)}</span>
+        <a class="boton chico" href="/api/exportar/todo" download title="Un archivo con una hoja por cada sección">Descargar todo en Excel</a>
+      </div>
     </div>
     <div class="tarjetas">
       <div class="tarjeta ${r.tareasVencidas.length ? 'peligro' : ''}"><div class="valor">${r.tareasVencidas.length}</div><div class="etiqueta">Tareas vencidas</div></div>
@@ -371,7 +384,8 @@ async function renderInicio(cont) {
         ${lista(r.oportunidadesFrenadas, (o) => `<li><span class="crece"><strong>${esc(o.titulo)}</strong> · ${linkCliente(o.cliente_id, o.cliente)}${quien(o.responsable)}</span><span class="detalle">${o.dias_sin_cambio_de_etapa} días en ${etiqueta(o.etapa)} · ${monto(o.monto)}</span></li>`, 'No hay oportunidades frenadas.')}
         <p class="nota-regla">Oportunidades abiertas sin cambio de etapa hace más de 14 días.</p>
       </section>
-    </div>`;
+    </div>
+    ${seccionGraficos(opos, actividades)}`;
 }
 
 // ===========================================================================
@@ -501,6 +515,7 @@ async function renderTabla(cont, nombre) {
       <h1>${def.titulo} <span class="sutil">${filasActuales.length}</span></h1>
       <div class="herramientas">
         <input type="search" id="filtro" placeholder="Buscar…" value="${esc(estado.filtro)}">
+        <a class="boton" href="/api/exportar/${nombre}" download>Exportar a Excel</a>
         <button class="boton primario" id="boton-nuevo">Nuevo</button>
       </div>
     </div>
@@ -1026,6 +1041,304 @@ $('#contenido').addEventListener('click', async (ev) => {
     }
   } catch (e) {
     avisar(e.message);
+  }
+});
+
+// ===========================================================================
+// Gráficos de Inicio (barras en HTML: una sola serie, color primario)
+// ===========================================================================
+
+const pesosCorto = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', notation: 'compact', maximumFractionDigits: 1 });
+
+/** Barras horizontales. filas: [{ etiqueta, valor, textoValor, tip }] */
+function barrasHorizontales(filas) {
+  const max = Math.max(...filas.map((f) => f.valor), 0);
+  return `<div class="g-barras">${filas.map((f) => {
+    const ancho = max > 0 ? Math.max((f.valor / max) * 100, f.valor > 0 ? 1.5 : 0) : 0;
+    return `
+      <div class="g-fila">
+        <span class="g-etiqueta">${esc(f.etiqueta)}</span>
+        <span class="g-pista">
+          <span class="g-barra" style="width:${ancho}%" tabindex="0" data-tip-valor="${esc(f.textoValor)}" data-tip-texto="${esc(f.tip)}"></span>
+          <span class="g-valor">${esc(f.textoValor)}</span>
+        </span>
+      </div>`;
+  }).join('')}</div>`;
+}
+
+/** Columnas verticales (serie temporal corta). cols: [{ etiqueta, valor, tip, rotular }] */
+function columnas(cols) {
+  const max = Math.max(...cols.map((c) => c.valor), 1);
+  return `<div class="g-columnas" style="--n:${cols.length}">${cols.map((c) => `
+      <div class="g-col">
+        <span class="g-col-area" style="--alto:${(c.valor / max) * 100}%">
+          ${c.rotular ? `<span class="g-col-valor">${c.valor}</span>` : ''}
+          <span class="g-columna" style="height:var(--alto)" tabindex="0" data-tip-valor="${c.valor}" data-tip-texto="${esc(c.tip)}"></span>
+        </span>
+        <span class="g-col-etiqueta">${esc(c.etiqueta)}</span>
+      </div>`).join('')}</div>`;
+}
+
+/** Tabla equivalente, para leer los valores sin depender del gráfico. */
+function tablaGrafico(encabezados, filas) {
+  return `<details class="g-tabla"><summary>Ver como tabla</summary><table>
+    <thead><tr>${encabezados.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead>
+    <tbody>${filas.map((f) => `<tr>${f.map((v) => `<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody>
+  </table></details>`;
+}
+
+function seccionGraficos(opos, actividades) {
+  // 1) Monto por etapa del embudo
+  const porEtapa = ETAPAS.map((etapa) => {
+    const lista = opos.filter((o) => o.etapa === etapa);
+    const monto = lista.reduce((s, o) => s + (o.monto || 0), 0);
+    const sinMonto = lista.filter((o) => o.monto == null).length;
+    return { etapa, monto, cantidad: lista.length, sinMonto };
+  });
+  const detalleEtapa = (e) => `${e.cantidad} ${e.cantidad === 1 ? 'oportunidad' : 'oportunidades'}${e.sinMonto ? ` (${e.sinMonto} sin monto)` : ''}`;
+  const g1 = `
+    <section class="panel grafico">
+      <h2>Monto por etapa del embudo</h2>
+      <p class="g-sub">Suma de las oportunidades en cada etapa. "Cerrado" es lo ya ganado.</p>
+      ${barrasHorizontales(porEtapa.map((e) => ({ etiqueta: ETIQUETAS[e.etapa], valor: e.monto, textoValor: pesosCorto.format(e.monto), tip: `${ETIQUETAS[e.etapa]} · ${detalleEtapa(e)}` })))}
+      ${tablaGrafico(['Etapa', 'Monto', 'Oportunidades'], porEtapa.map((e) => [ETIQUETAS[e.etapa], pesos.format(e.monto), detalleEtapa(e)]))}
+    </section>`;
+
+  // 2) Actividades por semana (últimas 8, semanas de lunes a domingo)
+  const hoy = new Date();
+  const lunes = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - ((hoy.getDay() + 6) % 7));
+  const semanas = Array.from({ length: 8 }, (_, i) => {
+    const inicio = new Date(lunes.getFullYear(), lunes.getMonth(), lunes.getDate() - (7 - i) * 7);
+    return { inicio, cantidad: 0 };
+  });
+  for (const a of actividades) {
+    const [y, m, d] = a.fecha.split('-').map(Number);
+    const dias = Math.round((new Date(y, m - 1, d) - semanas[0].inicio) / 86400000);
+    const i = Math.floor(dias / 7);
+    if (i >= 0 && i < semanas.length) semanas[i].cantidad++;
+  }
+  const dm = (f) => `${String(f.getDate()).padStart(2, '0')}/${String(f.getMonth() + 1).padStart(2, '0')}`;
+  const maxSemana = Math.max(...semanas.map((s) => s.cantidad));
+  const ultima = semanas.length - 1;
+  const g2 = `
+    <section class="panel grafico">
+      <h2>Actividades por semana</h2>
+      <p class="g-sub">Llamadas, reuniones, emails y visitas registradas en las últimas 8 semanas.</p>
+      ${columnas(semanas.map((s, i) => ({
+        etiqueta: i === ultima ? 'Esta' : dm(s.inicio),
+        valor: s.cantidad,
+        rotular: i === ultima || (s.cantidad === maxSemana && maxSemana > 0),
+        tip: `Semana del ${dm(s.inicio)}${i === ultima ? ' (esta semana)' : ''} · ${s.cantidad === 1 ? 'actividad' : 'actividades'}`,
+      })))}
+      ${tablaGrafico(['Semana del', 'Actividades'], semanas.map((s) => [dm(s.inicio), String(s.cantidad)]))}
+    </section>`;
+
+  // 3) Solo administración: monto abierto por vendedor
+  let g3 = '';
+  if (esAdmin()) {
+    const porVendedor = new Map();
+    for (const o of opos) {
+      if (o.etapa === 'cerrado') continue;
+      const v = porVendedor.get(o.responsable) || { monto: 0, cantidad: 0 };
+      v.monto += o.monto || 0;
+      v.cantidad++;
+      porVendedor.set(o.responsable, v);
+    }
+    const filas = [...porVendedor.entries()].sort((a, b) => b[1].monto - a[1].monto);
+    g3 = `
+    <section class="panel grafico">
+      <h2>Monto abierto por vendedor</h2>
+      <p class="g-sub">Oportunidades sin cerrar a cargo de cada persona.</p>
+      ${filas.length ? barrasHorizontales(filas.map(([nombre, v]) => ({ etiqueta: nombre, valor: v.monto, textoValor: pesosCorto.format(v.monto), tip: `${nombre} · ${v.cantidad} ${v.cantidad === 1 ? 'oportunidad abierta' : 'oportunidades abiertas'}` }))) : '<p class="vacio">No hay oportunidades abiertas.</p>'}
+      ${filas.length ? tablaGrafico(['Vendedor', 'Monto abierto', 'Oportunidades'], filas.map(([n, v]) => [n, pesos.format(v.monto), String(v.cantidad)])) : ''}
+    </section>`;
+  }
+
+  return `<h2 class="subtitulo">Gráficos</h2><div class="paneles graficos">${g1}${g2}${g3}</div>`;
+}
+
+// Tooltip compartido de los gráficos (hover y foco con teclado)
+const tip = document.createElement('div');
+tip.className = 'g-tip';
+tip.setAttribute('role', 'tooltip');
+tip.hidden = true;
+tip.innerHTML = '<strong></strong><span></span>';
+document.body.appendChild(tip);
+
+function mostrarTip(marca) {
+  tip.firstChild.textContent = marca.dataset.tipValor;
+  tip.lastChild.textContent = marca.dataset.tipTexto;
+  tip.hidden = false;
+  const r = marca.getBoundingClientRect();
+  const t = tip.getBoundingClientRect();
+  const x = Math.min(Math.max(8, r.left + r.width / 2 - t.width / 2), window.innerWidth - t.width - 8);
+  const y = r.top - t.height - 8 < 8 ? r.bottom + 8 : r.top - t.height - 8;
+  tip.style.left = `${x}px`;
+  tip.style.top = `${y}px`;
+}
+const ocultarTip = () => (tip.hidden = true);
+$('#contenido').addEventListener('pointerover', (ev) => {
+  const m = ev.target.closest('[data-tip-valor]');
+  if (m) mostrarTip(m);
+});
+$('#contenido').addEventListener('pointerout', (ev) => {
+  if (ev.target.closest('[data-tip-valor]')) ocultarTip();
+});
+$('#contenido').addEventListener('focusin', (ev) => {
+  const m = ev.target.closest('[data-tip-valor]');
+  if (m) mostrarTip(m);
+});
+$('#contenido').addEventListener('focusout', ocultarTip);
+$('#contenido').addEventListener('scroll', ocultarTip);
+
+// ===========================================================================
+// Recordatorio de tareas vencidas (dentro de la app)
+// ===========================================================================
+
+function leerGuardado(clave) {
+  try { return localStorage.getItem(clave); } catch { return null; }
+}
+function guardar(clave, valor) {
+  try { localStorage.setItem(clave, valor); } catch { /* sin almacenamiento: se vuelve a mostrar */ }
+}
+
+/** Insignia en "Tareas" y, al entrar, una ventana con las vencidas (una vez por día). */
+async function revisarVencidas(alEntrar) {
+  if (!estado.usuario) return;
+  let tareas;
+  try {
+    tareas = await api('GET', '/api/tareas');
+  } catch {
+    return;
+  }
+  const mias = tareas
+    .filter((t) => t.asignado_id === estado.usuario.id && t.estado !== 'completada' && diasDesde(t.fecha_limite) > 0)
+    .sort((a, b) => diasDesde(b.fecha_limite) - diasDesde(a.fecha_limite));
+
+  const insignia = $('#insignia-vencidas');
+  insignia.textContent = mias.length;
+  insignia.hidden = !mias.length;
+
+  const clave = `recordatorio-${estado.usuario.id}-${hoyISO()}`;
+  if (!alEntrar || !mias.length || leerGuardado(clave)) return;
+  guardar(clave, '1');
+
+  $('#recordatorio-titulo').textContent = mias.length === 1 ? 'Tenés 1 tarea vencida' : `Tenés ${mias.length} tareas vencidas`;
+  $('#recordatorio-lista').innerHTML = mias.slice(0, 8).map((t) => {
+    const d = diasDesde(t.fecha_limite);
+    return `<li><span class="crece"><strong>${esc(t.titulo)}</strong>${t.cliente ? ` · ${esc(t.cliente)}` : ''}</span>
+      <span class="detalle">vencida hace ${d} ${d === 1 ? 'día' : 'días'} · ${etiqueta(t.prioridad)}</span></li>`;
+  }).join('') + (mias.length > 8 ? `<li class="sutil">y ${mias.length - 8} más…</li>` : '');
+  $('#dialogo-recordatorio').showModal();
+}
+
+$('#recordatorio-ver').addEventListener('click', () => {
+  $('#dialogo-recordatorio').close();
+  irA('tareas');
+});
+
+// ===========================================================================
+// Búsqueda global (barra superior, Ctrl+K)
+// ===========================================================================
+
+const NOMBRES_GRUPO = { clientes: 'Clientes', contactos: 'Contactos', oportunidades: 'Oportunidades', tareas: 'Tareas', actividades: 'Actividades' };
+const campoBuscar = $('#buscar');
+const panelResultados = $('#buscar-resultados');
+let busquedaPendiente;
+let numeroBusqueda = 0;
+
+function cerrarResultados() {
+  panelResultados.hidden = true;
+  campoBuscar.setAttribute('aria-expanded', 'false');
+}
+
+async function ejecutarBusqueda() {
+  const q = campoBuscar.value.trim();
+  if (q.length < 2) return cerrarResultados();
+  const esta = ++numeroBusqueda;
+  let r;
+  try {
+    r = await api('GET', `/api/buscar?q=${encodeURIComponent(q)}`);
+  } catch (e) {
+    return avisar(e.message);
+  }
+  if (esta !== numeroBusqueda) return; // llegó una búsqueda más nueva
+
+  panelResultados.innerHTML = r.grupos.length
+    ? r.grupos.map((g) => `
+        <div class="br-grupo">
+          <div class="br-titulo">${NOMBRES_GRUPO[g.tipo]}${g.total > g.items.length ? ` <span class="sutil">(${g.items.length} de ${g.total})</span>` : ''}</div>
+          ${g.items.map((i) => `
+            <button type="button" class="br-item" role="option" data-tipo="${g.tipo}" data-id="${i.id}" data-cliente="${i.cliente_id ?? ''}">
+              <span class="br-nombre">${esc(i.titulo)}</span>
+              <span class="br-detalle">${esc(i.detalle)}</span>
+              ${i.estado ? etiqueta(i.estado) : ''}
+            </button>`).join('')}
+        </div>`).join('')
+    : `<p class="br-vacio">No encontré nada con "${esc(q)}".</p>`;
+  panelResultados.hidden = false;
+  campoBuscar.setAttribute('aria-expanded', 'true');
+}
+
+campoBuscar.addEventListener('input', () => {
+  clearTimeout(busquedaPendiente);
+  busquedaPendiente = setTimeout(ejecutarBusqueda, 200);
+});
+campoBuscar.addEventListener('focus', () => {
+  if (campoBuscar.value.trim().length >= 2 && panelResultados.innerHTML) {
+    panelResultados.hidden = false;
+    campoBuscar.setAttribute('aria-expanded', 'true');
+  }
+});
+
+async function abrirResultado(boton) {
+  const { tipo } = boton.dataset;
+  const id = Number(boton.dataset.id);
+  const clienteId = Number(boton.dataset.cliente);
+  cerrarResultados();
+  campoBuscar.blur();
+  $('#chat').classList.remove('abierto');
+  if (tipo === 'clientes') return irA('ficha', id);
+  if (clienteId) return irA('ficha', clienteId); // la ficha reúne todo lo del cliente
+  // Tarea sin cliente: abrir directamente su formulario
+  irA(tipo);
+  const registro = (await api('GET', `/api/${tipo}`)).find((x) => x.id === id);
+  if (registro) abrirFormulario(tipo, registro);
+}
+
+panelResultados.addEventListener('click', (ev) => {
+  const b = ev.target.closest('.br-item');
+  if (b) abrirResultado(b);
+});
+
+// Teclado: flechas para moverse, Enter para abrir, Escape para cerrar
+$('#buscador').addEventListener('keydown', (ev) => {
+  const items = [...panelResultados.querySelectorAll('.br-item')];
+  const i = items.indexOf(document.activeElement);
+  if (ev.key === 'ArrowDown') {
+    ev.preventDefault();
+    (items[i + 1] || items[0])?.focus();
+  } else if (ev.key === 'ArrowUp') {
+    ev.preventDefault();
+    if (i <= 0) campoBuscar.focus();
+    else items[i - 1].focus();
+  } else if (ev.key === 'Enter' && document.activeElement === campoBuscar && items[0]) {
+    ev.preventDefault();
+    abrirResultado(items[0]);
+  } else if (ev.key === 'Escape') {
+    cerrarResultados();
+    campoBuscar.focus();
+  }
+});
+
+document.addEventListener('click', (ev) => {
+  if (!ev.target.closest('#buscador')) cerrarResultados();
+});
+document.addEventListener('keydown', (ev) => {
+  if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'k' && estado.usuario && !$('#pantalla-app').hidden) {
+    ev.preventDefault();
+    campoBuscar.focus();
+    campoBuscar.select();
   }
 });
 

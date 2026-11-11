@@ -59,7 +59,12 @@
   <!-- Aplicación -->
   <div id="pantalla-app" class="app" hidden>
     <header class="barra">
-      <div class="marca"><span class="logo"></span> Agenda Inteligente</div>
+      <div class="marca"><span class="logo"></span> <span class="marca-texto">Agenda Inteligente</span></div>
+      <div class="buscador" id="buscador">
+        <input type="search" id="buscar" placeholder="Buscar clientes, tareas, oportunidades…" autocomplete="off" aria-label="Buscar en el CRM" aria-controls="buscar-resultados" aria-expanded="false">
+        <kbd class="atajo" aria-hidden="true">Ctrl K</kbd>
+        <div class="buscar-resultados" id="buscar-resultados" role="listbox" hidden></div>
+      </div>
       <div class="barra-derecha">
         <span id="usuario-actual" class="usuario"></span>
         <button id="boton-chat-movil" class="boton chico">Asistente</button>
@@ -73,7 +78,7 @@
       <button data-vista="clientes">Clientes</button>
       <button data-vista="embudo">Embudo</button>
       <button data-vista="oportunidades">Oportunidades</button>
-      <button data-vista="tareas">Tareas</button>
+      <button data-vista="tareas">Tareas <span class="insignia" id="insignia-vencidas" hidden title="Tareas vencidas"></span></button>
       <button data-vista="actividades">Actividades</button>
       <button data-vista="contactos">Contactos</button>
       <button data-vista="equipo" hidden>Equipo</button>
@@ -180,6 +185,20 @@
         <button type="button" class="boton" id="temporal-copiar-mensaje">Copiar mensaje</button>
         <span class="espacio"></span>
         <button type="button" class="boton primario" data-cerrar>Listo</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Recordatorio de tareas vencidas -->
+  <dialog id="dialogo-recordatorio" class="dialogo">
+    <div class="dialogo-cuerpo">
+      <h2 id="recordatorio-titulo"></h2>
+      <p class="sutil">Estas tareas ya pasaron su fecha límite. Completalas o cambiales la fecha.</p>
+      <ul class="lista-recordatorio" id="recordatorio-lista"></ul>
+      <div class="dialogo-botones">
+        <button type="button" class="boton fantasma" data-cerrar>Más tarde</button>
+        <span class="espacio"></span>
+        <button type="button" class="boton primario" id="recordatorio-ver">Ver mis tareas</button>
       </div>
     </div>
   </dialog>
