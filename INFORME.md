@@ -125,7 +125,9 @@ Instrucciones fijas (system prompt)            Cada mensaje del usuario
 - **Recordatorio de tareas vencidas** al entrar.
 - **Usuarios y contraseñas:** alta por la administración con contraseña temporal, "¿Olvidaste tu contraseña?",
   cambio de contraseña, desactivar y borrar cuentas.
-- **Copias de seguridad:** descarga desde la app y comandos para guardar y restaurar.
+- **Copias de seguridad:** descarga desde la app, comandos para guardar y restaurar (con un modo de prueba que no
+  cambia nada) y una **copia automática todos los viernes a las 18:00**, programada en Windows. El plan gratuito de
+  Supabase no hace copias propias.
 - **Modo claro y oscuro**, y diseño adaptado al celular.
 - **Asistente** en un panel lateral, con respuestas que aparecen a medida que se escriben.
 

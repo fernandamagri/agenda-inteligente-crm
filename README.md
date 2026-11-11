@@ -38,6 +38,12 @@ Después abrí <http://localhost:3000>.
 | `npm run restaurar -- <archivo> --confirmar` | Reemplaza **todos** los datos por los de la copia (todo o nada) |
 | `npm run reset-db -- --confirmar` | Borra **todo** y vuelve a los datos de ejemplo |
 
+**Copia automática semanal:** en la computadora de desarrollo, el Programador de tareas de Windows ejecuta
+[`scripts/copia-semanal.cmd`](scripts/copia-semanal.cmd) **todos los viernes a las 18:00** (tarea
+*"Agenda CRM - copia semanal"*). Si la computadora está apagada a esa hora, la copia se hace apenas se prende. El
+resultado de cada ejecución queda en `backups/registro.txt`. Para quitarla:
+`schtasks /Delete /TN "Agenda CRM - copia semanal" /F`.
+
 Ojo: la base de datos es la misma que usa la app online, así que `restaurar --confirmar` y `reset-db` también cambian
 los datos de la app publicada. Las copias de seguridad incluyen los hash de las contraseñas: guardalas en un lugar
 privado (la carpeta `backups/` no se sube a GitHub).
@@ -76,5 +82,6 @@ src/buscar.js      Búsqueda global
 src/exportar.js    Exportación a Excel
 src/copias.js      Copias de seguridad (backup.js y restaurar.js son los comandos)
 src/reset-db.js    Vuelve a los datos de ejemplo
+scripts/           copia-semanal.cmd: la copia automática de los viernes
 public/            Interfaz web (HTML, CSS y JavaScript)
 ```
