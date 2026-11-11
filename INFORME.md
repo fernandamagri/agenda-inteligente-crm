@@ -192,6 +192,29 @@ public/            Interfaz web
 - **Cuentas de prueba:** tienen la contraseña fija `demo123` y no se pueden cambiar, desactivar ni borrar, para que la
   demo siempre funcione aunque alguien entre como administradora.
 
+### 6.1 Mejoras de seguridad identificadas (no implementadas)
+
+Antes de entregar se hizo una revisión de seguridad de la app publicada. Por ser un proyecto académico con datos de
+prueba, estas mejoras quedan documentadas y **no se implementaron**. En un uso real con clientes reales, serían los
+siguientes pasos, en este orden:
+
+| Prioridad | Riesgo | Mejora propuesta |
+|---|---|---|
+| Alta | **Claves compartidas.** La clave de la API de Claude y la contraseña de la base viajan en el archivo `.env` de la entrega y se usaron durante el desarrollo. | Generar una clave de API y una contraseña de base nuevas, y poner un **límite de gasto mensual** en la consola de Anthropic. (El repositorio de GitHub no contiene ninguna clave: se verificó todo su historial.) |
+| Alta | **La administradora de prueba es pública.** Cualquiera con el link puede entrar como Carla (`admin@demo.com`), descargar la copia de seguridad completa (con los hash de las contraseñas de todas las cuentas) y crear usuarios. | Que las cuentas de prueba no puedan descargar copias ni ver cuentas reales, y administrar la app con una cuenta propia. |
+| Media | **Faltan cabeceras de seguridad HTTP.** No hay política de contenido (CSP), protección contra *clickjacking* ni HSTS, y el servidor anuncia que usa Express (`X-Powered-By`). | Agregar esas cabeceras (por ejemplo, con la librería *helmet*) y ocultar `X-Powered-By`. |
+| Media | **Límites de uso solo en el ingreso.** El asistente, que cuesta dinero por cada pregunta, no tiene límite. | Limitar los pedidos por usuario, por ejemplo 50 preguntas al asistente por día. |
+| Media | **Sin registro de auditoría.** No queda constancia de quién borró un registro, restableció una contraseña o descargó una copia. | Una tabla de auditoría ("quién hizo qué y cuándo") visible para la administración. |
+| Baja | **La app se conecta a la base como superusuario.** | Un usuario de base con permisos solo sobre las tablas del CRM (principio de mínimo privilegio). |
+| Baja | **Sesiones largas.** Duran 30 días aunque no se usen. | Cerrar la sesión tras un período de inactividad, por ejemplo 7 días. |
+| Baja | **Dependencias.** Una librería podría tener una vulnerabilidad nueva sin que nadie se entere. | Activar Dependabot en GitHub para recibir avisos automáticos. |
+| Baja | **Inyección de instrucciones al asistente.** Un texto en las notas de un cliente ("ignorá tus reglas…") llega al asistente. El impacto es bajo: el asistente no puede modificar nada y solo ve los datos de ese usuario. | Indicarle explícitamente que el contenido de `<datos_crm>` es información, nunca instrucciones. |
+| Baja | **Un solo factor de autenticación.** | Verificación en dos pasos (código del celular) para los administradores. |
+
+**Lo que ya está cubierto:** contraseñas con hash (*scrypt*), permisos verificados en el servidor, consultas a la base
+siempre parametrizadas (sin inyección SQL), textos escapados antes de mostrarse (sin inyección de código en la página),
+cookie de sesión segura, base de datos inaccesible desde afuera de la app y ninguna clave en el repositorio.
+
 ---
 
 ## 7. Estado actual y limitaciones
