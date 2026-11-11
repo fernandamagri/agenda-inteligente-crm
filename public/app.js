@@ -81,6 +81,35 @@ const ETIQUETAS = {
 const etiqueta = (v) => `<span class="etiqueta-estado e-${esc(v)}">${esc(ETIQUETAS[v] || v)}</span>`;
 
 // ===========================================================================
+// Modo claro / oscuro
+// ===========================================================================
+
+const sistemaOscuro = window.matchMedia('(prefers-color-scheme: dark)');
+const temaElegido = () => document.documentElement.dataset.tema; // 'claro' | 'oscuro' | undefined (sigue al sistema)
+const temaEfectivo = () => temaElegido() || (sistemaOscuro.matches ? 'oscuro' : 'claro');
+
+function pintarBotonesTema() {
+  const efectivo = temaEfectivo();
+  document.documentElement.dataset.temaEfectivo = efectivo;
+  const texto = efectivo === 'oscuro' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro';
+  document.querySelectorAll('.boton-tema').forEach((b) => {
+    b.setAttribute('aria-label', texto);
+    b.title = texto;
+  });
+}
+
+function alternarTema() {
+  const nuevo = temaEfectivo() === 'oscuro' ? 'claro' : 'oscuro';
+  document.documentElement.dataset.tema = nuevo;
+  try { localStorage.setItem('tema', nuevo); } catch { /* sin almacenamiento: dura hasta recargar */ }
+  pintarBotonesTema();
+}
+
+document.querySelectorAll('.boton-tema').forEach((b) => b.addEventListener('click', alternarTema));
+sistemaOscuro.addEventListener('change', pintarBotonesTema); // si sigue al sistema y el sistema cambia
+pintarBotonesTema();
+
+// ===========================================================================
 // Estado y sesión
 // ===========================================================================
 
@@ -920,7 +949,10 @@ async function renderUsuarios(cont) {
   cont.innerHTML = `
     <div class="vista-cabecera">
       <h1>Usuarios <span class="sutil">${usuarios.filter((u) => u.activo).length} activos</span></h1>
-      <div class="herramientas"><button type="button" class="boton primario" data-usr="nuevo">Nuevo usuario</button></div>
+      <div class="herramientas">
+        <a class="boton" href="/api/admin/copia" download title="Un archivo con todos los datos del CRM, para guardar en un lugar seguro">Descargar copia de seguridad</a>
+        <button type="button" class="boton primario" data-usr="nuevo">Nuevo usuario</button>
+      </div>
     </div>
 
     ${solicitudes.length ? `

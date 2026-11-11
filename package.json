@@ -7,7 +7,9 @@
   "scripts": {
     "start": "node --env-file-if-exists=.env server.js",
     "dev": "node --watch --env-file-if-exists=.env server.js",
-    "reset-db": "node src/reset-db.js"
+    "reset-db": "node --env-file-if-exists=.env src/reset-db.js",
+    "backup": "node --env-file-if-exists=.env src/backup.js",
+    "restaurar": "node --env-file-if-exists=.env src/restaurar.js"
   },
   "engines": {
     "node": ">=22.13"

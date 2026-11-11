@@ -75,6 +75,19 @@ La primera vez que arranca con una base vacía, crea las tablas y carga los dato
 - **Cuentas de prueba (@demo.com):** tienen la contraseña fija `demo123` y no se pueden cambiar ni restablecer, para que la
   demo siempre funcione.
 
+## Copias de seguridad
+
+El plan gratis de Supabase no hace copias, así que la app trae las suyas:
+
+- **Desde la app:** la administración tiene el botón **"Descargar copia de seguridad"** en *Usuarios*. Descarga un
+  archivo `.json` con todos los datos.
+- **Desde la computadora:** `npm run backup` guarda una copia en la carpeta `backups/` (conserva las 30 más nuevas).
+- **Restaurar:** `npm run restaurar -- backups/copia-AAAA-MM-DD-HHMM.json --probar` restaura la copia, verifica que
+  quede completa y deshace todo (no cambia nada). Con `--confirmar` reemplaza de verdad todos los datos; si algo falla a
+  mitad de camino, la base queda como estaba. Después de restaurar, todos vuelven a iniciar sesión.
+
+Las copias incluyen los hash de las contraseñas: guardalas en un lugar privado. La carpeta `backups/` no se sube a GitHub.
+
 ## Qué incluye
 
 - **Inicio**: el resumen del día con las reglas del negocio de `CONTEXT.md` (tareas vencidas, de hoy y de los
@@ -92,6 +105,8 @@ La primera vez que arranca con una base vacía, crea las tablas y carga los dato
   sin importar acentos, y solo entre los datos que cada usuario puede ver.
 - **Exportar a Excel**: cada sección tiene su botón, y en Inicio "Descargar todo en Excel" arma un archivo con una hoja
   por sección. Cada usuario exporta solo lo suyo.
+- **Modo claro / oscuro**: botón de luna o sol arriba a la derecha (y en la pantalla de ingreso). Por defecto sigue la
+  configuración del sistema; lo que elijas queda guardado en ese navegador.
 - **Recordatorio de tareas vencidas**: al entrar, si tenés tareas vencidas aparece un aviso (una vez por día) y el
   menú *Tareas* muestra cuántas son.
 - **Clientes, Oportunidades, Tareas, Actividades y Contactos**: alta, edición, baja y búsqueda.
@@ -118,6 +133,7 @@ src/sesiones.js  Sesiones e intentos de ingreso
 src/usuarios.js  Cuentas, cambio y restablecimiento de contraseñas
 src/buscar.js    Búsqueda global
 src/exportar.js  Exportación a Excel
+src/copias.js    Copias de seguridad y restauración (npm run backup / npm run restaurar)
 src/esquema.sql  Tablas de la base de datos
 src/crm.js       Datos del CRM con permisos y resumen del día
 src/asistente.js Integración con Claude

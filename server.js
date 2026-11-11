@@ -15,6 +15,8 @@ import {
 import { MODELO, conversar, credencialesConfiguradas } from './src/asistente.js';
 import { exportarExcel } from './src/exportar.js';
 import { buscar } from './src/buscar.js';
+import { crearCopia } from './src/copias.js';
+import { hoyISO } from './src/fechas.js';
 
 const app = express();
 const PUERTO = Number(process.env.PORT) || 3000;
@@ -122,6 +124,15 @@ app.delete('/api/admin/usuarios/:id', requiereSesion, async (req, res) => {
 app.post('/api/admin/usuarios/:id/restablecer', requiereSesion, async (req, res) =>
   res.json(await restablecerPassword(req.usuario, idValido(req)))
 );
+// Copia de seguridad completa (incluye los hash de las contraseñas: es un archivo sensible).
+app.get('/api/admin/copia', requiereSesion, async (req, res) => {
+  if (req.usuario.rol !== 'admin') throw new ErrorCRM('Solo el administrador puede descargar copias de seguridad.', 403);
+  const copia = await crearCopia();
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="agenda-crm-copia-${hoyISO()}.json"`);
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(JSON.stringify(copia, null, 1));
+});
 app.get('/api/admin/solicitudes', requiereSesion, async (req, res) => res.json(await listarSolicitudes(req.usuario)));
 app.post('/api/admin/solicitudes/:id/descartar', requiereSesion, async (req, res) => {
   await descartarSolicitud(req.usuario, idValido(req));
