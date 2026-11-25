@@ -18,7 +18,7 @@ import { buscar } from './src/buscar.js';
 import { crearCopia } from './src/copias.js';
 import { hoyISO } from './src/fechas.js';
 import { resumenPublicidad } from './src/publicidad.js';
-import { comparacionStock } from './src/stock.js';
+import { actualizarComparacion, comparacionStock, estadoListas, subirLista } from './src/stock.js';
 
 const app = express();
 const PUERTO = Number(process.env.PORT) || 3000;
@@ -147,6 +147,12 @@ app.get('/api/usuarios', requiereSesion, async (req, res) => res.json(await list
 app.get('/api/resumen', requiereSesion, async (req, res) => res.json(await calcularResumen(req.usuario)));
 app.get('/api/publicidad', requiereSesion, async (req, res) => res.json(await resumenPublicidad(req.usuario, { dias: req.query.dias })));
 app.get('/api/stock', requiereSesion, async (req, res) => res.json(await comparacionStock(req.usuario)));
+app.get('/api/stock/listas', requiereSesion, async (req, res) => res.json(await estadoListas(req.usuario)));
+app.post('/api/stock/listas/:tipo', requiereSesion, express.raw({ type: () => true, limit: '20mb' }), async (req, res) => {
+  const nombre = decodeURIComponent(String(req.get('X-Nombre-Archivo') ?? ''));
+  res.json(await subirLista(req.usuario, req.params.tipo, req.body, nombre, req.get('Content-Type')));
+});
+app.post('/api/stock/actualizar', requiereSesion, async (req, res) => res.json(await actualizarComparacion(req.usuario)));
 app.get('/api/equipo', requiereSesion, async (req, res) => res.json(await resumenEquipo(req.usuario)));
 app.get('/api/buscar', requiereSesion, async (req, res) => res.json(await buscar(req.usuario, String(req.query.q ?? '').slice(0, 100))));
 app.get('/api/exportar/:que', requiereSesion, async (req, res) => {

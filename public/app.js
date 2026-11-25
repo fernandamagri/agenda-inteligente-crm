@@ -1005,6 +1005,86 @@ let textoStock = '';
 /** Para buscar: minúsculas, sin acentos, y "MLA-123" igual a "MLA123". */
 const normalizarBusquedaStock = (v) => String(v ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[\s-]/g, '');
 
+/** Panel para cargar las listas de Proges y Planet.com y volver a comparar. */
+function htmlCargaListas() {
+  return `
+    <section class="panel carga-listas">
+      <h2>Cargar listas de stock</h2>
+      <div class="carga-filas">
+        <label class="carga-item">
+          <span><strong>Proges</strong> <span class="sutil">(Excel .xlsx)</span><br><span class="sutil" id="estado-lista-proges">…</span></span>
+          <input type="file" accept=".xlsx,.xls" data-lista="proges">
+        </label>
+        <label class="carga-item">
+          <span><strong>Planet.com</strong> <span class="sutil">(PDF o Excel)</span><br><span class="sutil" id="estado-lista-planet">…</span></span>
+          <input type="file" accept=".pdf,.xlsx,.xls" data-lista="planet">
+        </label>
+        <div class="carga-item">
+          <span><strong>Comparar con Mercado Libre</strong><br><span class="sutil">Se hace solo después de cargar una lista.</span></span>
+          <button type="button" class="boton chico" id="boton-actualizar-stock">Actualizar ahora</button>
+        </div>
+      </div>
+      <p class="nota-regla" id="mensaje-carga"></p>
+    </section>`;
+}
+
+function activarCargaListas(cont) {
+  const mensaje = $('#mensaje-carga', cont);
+  const fecha = (iso) => (iso ? new Date(iso).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }) : null);
+  const mostrarEstado = async () => {
+    try {
+      const e = await api('GET', '/api/stock/listas');
+      for (const tipo of ['proges', 'planet']) {
+        const el = $(`#estado-lista-${tipo}`, cont);
+        if (el) el.textContent = e[tipo].subida ? `Última: ${fecha(e[tipo].subida)} · ${e[tipo].productos} productos` : 'Todavía no se cargó';
+      }
+    } catch {
+      cont.querySelectorAll('[id^=estado-lista-]').forEach((el) => { el.textContent = ''; });
+    }
+  };
+
+  const actualizar = async () => {
+    mensaje.textContent = 'Comparando con Mercado Libre… puede tardar 1 o 2 minutos.';
+    await api('POST', '/api/stock/actualizar');
+    datosStock = await api('GET', '/api/stock');
+    if (estado.vista === 'stock') dibujarStock(cont);
+    avisar('Comparación de stock actualizada.');
+  };
+
+  cont.querySelectorAll('input[data-lista]').forEach((input) => input.addEventListener('change', async () => {
+    const archivo = input.files[0];
+    if (!archivo) return;
+    const nombre = input.dataset.lista === 'proges' ? 'Proges' : 'Planet.com';
+    cont.querySelectorAll('.carga-listas input, .carga-listas button').forEach((el) => { el.disabled = true; });
+    mensaje.classList.remove('error');
+    mensaje.textContent = `Subiendo la lista de ${nombre}…`;
+    try {
+      const res = await fetch(`/api/stock/listas/${input.dataset.lista}`, {
+        method: 'POST',
+        headers: { 'Content-Type': archivo.type || 'application/octet-stream', 'X-Nombre-Archivo': encodeURIComponent(archivo.name) },
+        body: archivo,
+      });
+      const datos = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(datos.error || `Error ${res.status}`);
+      mensaje.textContent = `Lista de ${nombre} cargada: ${datos.productos} productos.`;
+      await actualizar();
+    } catch (e) {
+      mensaje.classList.add('error');
+      mensaje.textContent = e.message;
+      cont.querySelectorAll('.carga-listas input, .carga-listas button').forEach((el) => { el.disabled = false; });
+      input.value = '';
+    }
+  }));
+
+  $('#boton-actualizar-stock', cont)?.addEventListener('click', async (ev) => {
+    ev.target.disabled = true;
+    mensaje.classList.remove('error');
+    try { await actualizar(); } catch (e) { mensaje.classList.add('error'); mensaje.textContent = e.message; ev.target.disabled = false; }
+  });
+
+  mostrarEstado();
+}
+
 async function renderStock(cont) {
   cont.innerHTML = `<div class="vista-cabecera"><h1>Stock: Mercado Libre vs Proges + Planet.com</h1></div><p class="sutil">Cargando… (si la app de stock estaba dormida puede tardar hasta un minuto)</p>`;
   datosStock = await api('GET', '/api/stock');
@@ -1021,7 +1101,8 @@ function dibujarStock(cont) {
       <a class="boton chico" href="${esc(datos.urlApp)}" target="_blank" rel="noopener">Abrir la app de stock</a>
     </div>`;
   if (!cuentas.length) {
-    cont.innerHTML = `${cabecera}<p class="vacio">Todavía no hay una comparación guardada. Se genera desde la app de stock.</p>`;
+    cont.innerHTML = `${cabecera}${htmlCargaListas()}<p class="vacio">Todavía no hay una comparación guardada. Cargá la lista de Proges para generarla.</p>`;
+    activarCargaListas(cont);
     return;
   }
   if (!cuentas.some((c) => c.id === cuentaStock)) cuentaStock = cuentas[0].id;
@@ -1042,6 +1123,7 @@ function dibujarStock(cont) {
       <div class="tarjeta"><div class="etiqueta">Sin cruzar / sin código</div><div class="valor">${r.sin_cruzar + r.sin_ean_ml}</div></div>
       <div class="tarjeta"><div class="etiqueta">No publicados</div><div class="valor">${r.no_publicado}</div></div>
     </div>
+    ${htmlCargaListas()}
     <div class="herramientas-stock">
       <input type="search" id="buscar-stock" placeholder="Buscar por código de barras, MLA o nombre (podés usar el lector)" autocomplete="off" value="${esc(textoStock)}">
     </div>
@@ -1083,6 +1165,7 @@ function dibujarStock(cont) {
   };
   dibujarTabla();
 
+  activarCargaListas(cont);
   const buscador = $('#buscar-stock', cont);
   buscador.addEventListener('input', () => { textoStock = buscador.value; dibujarTabla(); });
   buscador.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); buscador.select(); } });

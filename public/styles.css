@@ -421,3 +421,8 @@ body:has(#pantalla-login[hidden]):has(#pantalla-cambio[hidden]) .tema-flotante {
 .herramientas-stock { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 12px; }
 .chip.activo { border-color: var(--primario); background: var(--primario-suave); color: var(--primario); font-weight: 600; }
 #buscar-stock { width: min(460px, 100%); }
+.carga-listas { margin-bottom: 16px; }
+.carga-filas { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.carga-item { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px dashed var(--borde); border-radius: var(--radio); cursor: pointer; }
+.carga-item input[type=file] { font-size: .85em; max-width: 100%; }
+.nota-regla.error { color: var(--peligro); }
