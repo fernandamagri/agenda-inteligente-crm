@@ -1001,6 +1001,9 @@ const ESTADOS_STOCK = {
 let filtroStock = 'venta_sin_stock';
 let cuentaStock = null;
 let datosStock = null;
+let textoStock = '';
+/** Para buscar: minúsculas, sin acentos, y "MLA-123" igual a "MLA123". */
+const normalizarBusquedaStock = (v) => String(v ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[\s-]/g, '');
 
 async function renderStock(cont) {
   cont.innerHTML = `<div class="vista-cabecera"><h1>Stock: Mercado Libre vs Proges + Planet.com</h1></div><p class="sutil">Cargando… (si la app de stock estaba dormida puede tardar hasta un minuto)</p>`;
@@ -1026,10 +1029,6 @@ function dibujarStock(cont) {
   const r = c.resumen;
   const generado = r.generated_at ? new Date(r.generated_at).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }) : '—';
 
-  const filas = c.filas.filter((f) => filtroStock === 'todos' || f.status === filtroStock)
-    .sort((a, b) => (b.diff ?? 0) - (a.diff ?? 0));
-  const n = (v) => (v === null || v === undefined ? '—' : v);
-
   cont.innerHTML = `
     ${cabecera}
     <div class="herramientas-stock">
@@ -1044,29 +1043,49 @@ function dibujarStock(cont) {
       <div class="tarjeta"><div class="etiqueta">No publicados</div><div class="valor">${r.no_publicado}</div></div>
     </div>
     <div class="herramientas-stock">
+      <input type="search" id="buscar-stock" placeholder="Buscar por código de barras, MLA o nombre (podés usar el lector)" autocomplete="off" value="${esc(textoStock)}">
+    </div>
+    <div class="herramientas-stock">
       ${[...Object.keys(ESTADOS_STOCK), 'todos'].map((k) => `<button class="chip ${k === filtroStock ? 'activo' : ''}" data-filtro="${k}">${k === 'todos' ? 'Todos' : esc(ESTADOS_STOCK[k].texto)}</button>`).join('')}
     </div>
-    ${filtroStock !== 'todos' ? `<p class="nota-regla">${esc(ESTADOS_STOCK[filtroStock].ayuda)}</p>` : ''}
-    <div class="tabla-envoltura">
-      <table class="tabla sin-clic">
-        <thead><tr>
-          <th>Producto</th><th>Estado</th><th class="num">ML</th><th class="num">Proges</th><th class="num">Planet.com</th><th class="num">Total depósito</th><th class="num">Diferencia</th>
-        </tr></thead>
-        <tbody>${filas.map((f) => {
-          const e = ESTADOS_STOCK[f.status] ?? { texto: f.status, clase: '' };
-          return `<tr>
-            <td>${f.permalink ? `<a href="${esc(f.permalink)}" target="_blank" rel="noopener">${esc(f.title)}</a>` : esc(f.title)}
-              <div class="sutil">${[f.ml_id, f.ean ? `EAN ${f.ean}` : ''].filter(Boolean).map(esc).join(' · ')}</div></td>
-            <td><span class="etiqueta-estado ${e.clase}">${esc(e.texto)}</span></td>
-            <td class="num">${n(f.ml_stock)}</td><td class="num">${n(f.proges_stock)}</td><td class="num">${n(f.planet_stock)}</td>
-            <td class="num">${n(f.internal_stock)}</td>
-            <td class="num">${f.diff ? `<span class="${f.diff > 0 ? 'num-peligro' : ''}">${f.diff > 0 ? '+' : ''}${f.diff}</span>` : n(f.diff)}</td>
-          </tr>`;
-        }).join('') || '<tr><td class="vacio" colspan="7">No hay productos en este estado.</td></tr>'}
-        </tbody>
-      </table>
-    </div>`;
+    <div id="resultado-stock"></div>`;
 
+  const dibujarTabla = () => {
+    const q = normalizarBusquedaStock(textoStock);
+    const coincide = (f) => !q || [f.title, f.proges_name, f.ean, f.ml_id].some((v) => normalizarBusquedaStock(v).includes(q));
+    // Con una búsqueda escrita se busca en todos los estados, no solo en el filtro elegido.
+    const filas = c.filas.filter((f) => (q || filtroStock === 'todos' || f.status === filtroStock) && coincide(f))
+      .sort((a, b) => (b.diff ?? 0) - (a.diff ?? 0));
+    const enOtras = q ? cuentas.filter((x) => x.id !== c.id && x.filas.some(coincide)).map((x) => x.nombre) : [];
+    const n = (v) => (v === null || v === undefined ? '—' : v);
+    $('#resultado-stock', cont).innerHTML = `
+      ${q ? `<p class="nota-regla">${filas.length} ${filas.length === 1 ? 'resultado' : 'resultados'} en ${esc(c.nombre)} (todos los estados).${enOtras.length ? ` También aparece en: <strong>${esc(enOtras.join(', '))}</strong>.` : ''}</p>`
+        : filtroStock !== 'todos' ? `<p class="nota-regla">${esc(ESTADOS_STOCK[filtroStock].ayuda)}</p>` : ''}
+      <div class="tabla-envoltura">
+        <table class="tabla sin-clic">
+          <thead><tr>
+            <th>Producto</th><th>Estado</th><th class="num">ML</th><th class="num">Proges</th><th class="num">Planet.com</th><th class="num">Total depósito</th><th class="num">Diferencia</th>
+          </tr></thead>
+          <tbody>${filas.map((f) => {
+            const e = ESTADOS_STOCK[f.status] ?? { texto: f.status, clase: '' };
+            return `<tr>
+              <td>${f.permalink ? `<a href="${esc(f.permalink)}" target="_blank" rel="noopener">${esc(f.title)}</a>` : esc(f.title)}
+                <div class="sutil">${[f.ml_id, f.ean ? `EAN ${f.ean}` : ''].filter(Boolean).map(esc).join(' · ')}</div></td>
+              <td><span class="etiqueta-estado ${e.clase}">${esc(e.texto)}</span></td>
+              <td class="num">${n(f.ml_stock)}</td><td class="num">${n(f.proges_stock)}</td><td class="num">${n(f.planet_stock)}</td>
+              <td class="num">${n(f.internal_stock)}</td>
+              <td class="num">${f.diff ? `<span class="${f.diff > 0 ? 'num-peligro' : ''}">${f.diff > 0 ? '+' : ''}${f.diff}</span>` : n(f.diff)}</td>
+            </tr>`;
+          }).join('') || `<tr><td class="vacio" colspan="7">${q ? 'No encontré productos con esa búsqueda.' : 'No hay productos en este estado.'}</td></tr>`}
+          </tbody>
+        </table>
+      </div>`;
+  };
+  dibujarTabla();
+
+  const buscador = $('#buscar-stock', cont);
+  buscador.addEventListener('input', () => { textoStock = buscador.value; dibujarTabla(); });
+  buscador.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); buscador.select(); } });
   cont.querySelectorAll('[data-filtro]').forEach((b) => b.addEventListener('click', () => { filtroStock = b.dataset.filtro; dibujarStock(cont); }));
   cont.querySelectorAll('[data-cuenta]').forEach((b) => b.addEventListener('click', () => { cuentaStock = b.dataset.cuenta; dibujarStock(cont); }));
 }
