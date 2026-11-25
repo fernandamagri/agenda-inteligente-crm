@@ -416,3 +416,5 @@ body:has(#pantalla-login[hidden]):has(#pantalla-cambio[hidden]) .tema-flotante {
   .buscador { min-width: 0; }
   .barra-derecha { gap: 4px; }
 }
+.tabla tr.fila-nota td { border-top: 0; padding-top: 0; font-size: .85em; }
+.tabla tr.fila-nota:hover { background: none; }

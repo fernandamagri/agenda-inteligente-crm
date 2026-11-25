@@ -150,6 +150,7 @@ async function entrar(usuario) {
   $('#usuario-actual').innerHTML = `<strong>${esc(usuario.nombre)}</strong> · ${usuario.rol === 'admin' ? 'administrador' : 'vendedor'}`;
   $('#menu [data-vista=equipo]').hidden = usuario.rol !== 'admin';
   $('#menu [data-vista=usuarios]').hidden = usuario.rol !== 'admin';
+  $('#menu [data-vista=publicidad]').hidden = usuario.rol !== 'admin';
   irA('inicio'); // renderVista actualiza la insignia de pedidos
   iniciarChat();
   revisarVencidas(true);
@@ -288,6 +289,7 @@ async function renderVista() {
     else if (estado.vista === 'ficha') await renderFicha(cont, estado.clienteId);
     else if (estado.vista === 'embudo') await renderEmbudo(cont);
     else if (estado.vista === 'equipo') await renderEquipo(cont);
+    else if (estado.vista === 'publicidad') await renderPublicidad(cont);
     else if (estado.vista === 'usuarios') await renderUsuarios(cont);
     else await renderTabla(cont, estado.vista);
   } catch (e) {
@@ -885,6 +887,101 @@ async function renderEquipo(cont) {
         </section>`;
       }).join('')}
     </div>`;
+}
+
+// ===========================================================================
+// Publicidad en Mercado Libre (administrador)
+// ===========================================================================
+
+const roasTxt = (v) => (v === null || v === undefined ? '—' : `${new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1 }).format(v)}x`);
+const fechaCorta = (iso) => {
+  const [a, m, d] = iso.split('-').map(Number);
+  const dia = new Date(a, m - 1, d).toLocaleDateString('es-AR', { weekday: 'short' });
+  return `${dia} ${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}`;
+};
+
+/** Semáforo: 'ok' si el valor actual está a ±10% del sugerido, si no 'alerta'. */
+function semaforo(actual, sugerido) {
+  if (actual === null || actual === undefined || !sugerido) return '';
+  const ok = Math.abs(actual - sugerido) / sugerido <= 0.1;
+  return ok
+    ? '<span class="etiqueta-estado e-completada">Bien</span>'
+    : '<span class="etiqueta-estado e-hoy">Ajustar</span>';
+}
+
+async function renderPublicidad(cont) {
+  const datos = await api('GET', '/api/publicidad?dias=7');
+  const cabecera = `
+    <div class="vista-cabecera">
+      <h1>Publicidad Mercado Libre · SBHOGAR</h1>
+      <span class="sutil">${datos.ultimoRegistro ? `Último registro: ${esc(fechaCorta(datos.ultimoRegistro.slice(0, 10)))} ${esc(datos.ultimoRegistro.slice(11))} h` : ''}</span>
+    </div>`;
+
+  if (!datos.hayDatos) {
+    cont.innerHTML = `${cabecera}<p class="vacio">Todavía no hay registros de las campañas. Se guardan solos cada hora.</p>`;
+    return;
+  }
+
+  const tarjetas = datos.campanas.map((c) => {
+    const h = c.hoy;
+    if (!h) return `<div class="tarjeta"><div class="etiqueta">${esc(c.nombre)}</div><div class="valor">—</div><div class="sutil">Sin datos de hoy</div></div>`;
+    const cortada = h.pct >= datos.umbralCorte;
+    const clase = cortada ? 'peligro' : h.pct >= 75 ? 'alerta' : '';
+    return `
+      <div class="tarjeta ${clase}">
+        <div class="etiqueta">${esc(c.nombre)} · hoy</div>
+        <div class="valor">${Math.round(h.pct)}%</div>
+        <div class="sutil">${pesos.format(h.gasto)} de ${pesos.format(h.presupuesto)}</div>
+        <div class="sutil">${cortada ? `Sin presupuesto desde las ${esc(h.horaCorte)} h` : `Activa (a las ${esc(h.ultimaHora)} h)`}</div>
+      </div>`;
+  }).join('');
+
+  const recomendaciones = datos.campanas.map((c) => {
+    const r = c.recomendacion;
+    return `
+      <tr>
+        <td><strong>${esc(c.nombre)}</strong>${r ? `<div class="sutil">${esc(r.rol)}</div>` : ''}</td>
+        <td class="num">${roasTxt(c.roasReal)}</td>
+        <td class="num">${roasTxt(c.roasObjetivoActual)}</td>
+        <td class="num">${r ? `${roasTxt(r.roasSugerido)}${r.pasoIntermedio && c.roasObjetivoActual > r.pasoIntermedio ? `<div class="sutil">1er paso: ${roasTxt(r.pasoIntermedio)}</div>` : ''}` : '—'}</td>
+        <td>${r ? semaforo(c.roasObjetivoActual, r.roasSugerido) : ''}</td>
+        <td class="num">${c.presupuestoActual !== null ? pesos.format(c.presupuestoActual) : '—'}</td>
+        <td class="num">${r ? pesos.format(r.presupuestoSugerido) : '—'}</td>
+        <td>${r ? semaforo(c.presupuestoActual, r.presupuestoSugerido) : ''}</td>
+      </tr>
+      ${r ? `<tr class="fila-nota"><td colspan="8" class="sutil">${esc(r.porque)}</td></tr>` : ''}`;
+  }).join('');
+
+  const historial = datos.campanas.map((c) => `
+    <section class="panel">
+      <h2>${esc(c.nombre)} <span class="cuenta">${c.diasCompletos ? `se cortó ${c.diasCortados} de ${c.diasCompletos} ${c.diasCompletos === 1 ? 'día' : 'días'}` : 'sin días completos todavía'}</span></h2>
+      <ul>${c.dias.map((d) => `
+        <li>
+          <span class="crece"><strong>${esc(fechaCorta(d.fecha))}</strong>${d.esHoy ? ' <span class="etiqueta-estado e-nuevo">hoy</span>' : ''}
+            · ${pesos.format(d.gasto)} (${Math.round(d.pct)}%)${d.ingresos ? ` · vendió ${pesos.format(d.ingresos)}` : ''}</span>
+          <span class="detalle">${d.horaCorte ? `<span class="num-peligro">cortó ${esc(d.horaCorte)} h</span>` : d.esHoy ? 'en curso' : 'no se cortó'}</span>
+        </li>`).join('')}
+      </ul>
+    </section>`).join('');
+
+  cont.innerHTML = `
+    ${cabecera}
+    <div class="tarjetas">${tarjetas}</div>
+
+    <h2 class="subtitulo">ROAS y presupuesto recomendados (metodología DomUP)</h2>
+    <div class="tabla-envoltura">
+      <table class="tabla sin-clic">
+        <thead><tr>
+          <th>Campaña</th><th class="num">ROAS real (${datos.dias} d)</th><th class="num">ROAS objetivo hoy</th><th class="num">ROAS sugerido</th><th></th>
+          <th class="num">Presupuesto hoy</th><th class="num">Presupuesto sugerido</th><th></th>
+        </tr></thead>
+        <tbody>${recomendaciones}</tbody>
+      </table>
+    </div>
+    <p class="nota-regla">Cambios graduales, de a uno, y medir a 7 días. El ROAS real sale de lo que Mercado Libre atribuye a los anuncios (puede llegar con 3-4 días de atraso). Se considera "cortada" al llegar al ${datos.umbralCorte}% del presupuesto.</p>
+
+    <h2 class="subtitulo">Últimos ${datos.dias} días: a qué hora se quedó sin presupuesto</h2>
+    <div class="paneles">${historial}</div>`;
 }
 
 // ===========================================================================

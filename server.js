@@ -17,6 +17,7 @@ import { exportarExcel } from './src/exportar.js';
 import { buscar } from './src/buscar.js';
 import { crearCopia } from './src/copias.js';
 import { hoyISO } from './src/fechas.js';
+import { resumenPublicidad } from './src/publicidad.js';
 
 const app = express();
 const PUERTO = Number(process.env.PORT) || 3000;
@@ -143,6 +144,7 @@ app.post('/api/admin/solicitudes/:id/descartar', requiereSesion, async (req, res
 
 app.get('/api/usuarios', requiereSesion, async (req, res) => res.json(await listarUsuarios(req.usuario)));
 app.get('/api/resumen', requiereSesion, async (req, res) => res.json(await calcularResumen(req.usuario)));
+app.get('/api/publicidad', requiereSesion, async (req, res) => res.json(await resumenPublicidad(req.usuario, { dias: req.query.dias })));
 app.get('/api/equipo', requiereSesion, async (req, res) => res.json(await resumenEquipo(req.usuario)));
 app.get('/api/buscar', requiereSesion, async (req, res) => res.json(await buscar(req.usuario, String(req.query.q ?? '').slice(0, 100))));
 app.get('/api/exportar/:que', requiereSesion, async (req, res) => {
