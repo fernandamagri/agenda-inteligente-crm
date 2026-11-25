@@ -418,3 +418,5 @@ body:has(#pantalla-login[hidden]):has(#pantalla-cambio[hidden]) .tema-flotante {
 }
 .tabla tr.fila-nota td { border-top: 0; padding-top: 0; font-size: .85em; }
 .tabla tr.fila-nota:hover { background: none; }
+.herramientas-stock { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 12px; }
+.chip.activo { border-color: var(--primario); background: var(--primario-suave); color: var(--primario); font-weight: 600; }

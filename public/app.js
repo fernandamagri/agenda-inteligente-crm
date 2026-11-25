@@ -151,6 +151,7 @@ async function entrar(usuario) {
   $('#menu [data-vista=equipo]').hidden = usuario.rol !== 'admin';
   $('#menu [data-vista=usuarios]').hidden = usuario.rol !== 'admin';
   $('#menu [data-vista=publicidad]').hidden = usuario.rol !== 'admin';
+  $('#menu [data-vista=stock]').hidden = usuario.rol !== 'admin';
   irA('inicio'); // renderVista actualiza la insignia de pedidos
   iniciarChat();
   revisarVencidas(true);
@@ -290,6 +291,7 @@ async function renderVista() {
     else if (estado.vista === 'embudo') await renderEmbudo(cont);
     else if (estado.vista === 'equipo') await renderEquipo(cont);
     else if (estado.vista === 'publicidad') await renderPublicidad(cont);
+    else if (estado.vista === 'stock') await renderStock(cont);
     else if (estado.vista === 'usuarios') await renderUsuarios(cont);
     else await renderTabla(cont, estado.vista);
   } catch (e) {
@@ -982,6 +984,91 @@ async function renderPublicidad(cont) {
 
     <h2 class="subtitulo">Últimos ${datos.dias} días: a qué hora se quedó sin presupuesto</h2>
     <div class="paneles">${historial}</div>`;
+}
+
+// ===========================================================================
+// Stock: Mercado Libre vs Proges + Planet.com (administrador)
+// ===========================================================================
+
+const ESTADOS_STOCK = {
+  venta_sin_stock: { texto: 'ML tiene de más', clase: 'e-vencida', ayuda: 'Mercado Libre muestra más stock del que hay: riesgo de vender algo que no tenés.' },
+  diferencia: { texto: 'ML tiene de menos', clase: 'e-hoy', ayuda: 'Hay más stock en el depósito del que está publicado. No es urgente.' },
+  sin_cruzar: { texto: 'Sin cruzar', clase: '', ayuda: 'La publicación tiene código de barras, pero no aparece en Proges ni en Planet.com.' },
+  sin_ean_ml: { texto: 'Sin código en ML', clase: '', ayuda: 'La publicación no tiene código de barras cargado.' },
+  no_publicado: { texto: 'No publicado', clase: 'e-nuevo', ayuda: 'Está en el depósito pero no tiene publicación activa en ML.' },
+  ok: { texto: 'OK', clase: 'e-completada', ayuda: 'El stock coincide.' },
+};
+let filtroStock = 'venta_sin_stock';
+let cuentaStock = null;
+let datosStock = null;
+
+async function renderStock(cont) {
+  cont.innerHTML = `<div class="vista-cabecera"><h1>Stock: Mercado Libre vs Proges + Planet.com</h1></div><p class="sutil">Cargando… (si la app de stock estaba dormida puede tardar hasta un minuto)</p>`;
+  datosStock = await api('GET', '/api/stock');
+  if (estado.vista !== 'stock') return;
+  dibujarStock(cont);
+}
+
+function dibujarStock(cont) {
+  const datos = datosStock;
+  const cuentas = datos.cuentas.filter((c) => c.conectada && c.resumen);
+  const cabecera = `
+    <div class="vista-cabecera">
+      <h1>Stock: Mercado Libre vs Proges + Planet.com</h1>
+      <a class="boton chico" href="${esc(datos.urlApp)}" target="_blank" rel="noopener">Abrir la app de stock</a>
+    </div>`;
+  if (!cuentas.length) {
+    cont.innerHTML = `${cabecera}<p class="vacio">Todavía no hay una comparación guardada. Se genera desde la app de stock.</p>`;
+    return;
+  }
+  if (!cuentas.some((c) => c.id === cuentaStock)) cuentaStock = cuentas[0].id;
+  const c = cuentas.find((x) => x.id === cuentaStock);
+  const r = c.resumen;
+  const generado = r.generated_at ? new Date(r.generated_at).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+
+  const filas = c.filas.filter((f) => filtroStock === 'todos' || f.status === filtroStock)
+    .sort((a, b) => (b.diff ?? 0) - (a.diff ?? 0));
+  const n = (v) => (v === null || v === undefined ? '—' : v);
+
+  cont.innerHTML = `
+    ${cabecera}
+    <div class="herramientas-stock">
+      ${cuentas.length > 1 ? cuentas.map((x) => `<button class="chip ${x.id === cuentaStock ? 'activo' : ''}" data-cuenta="${esc(x.id)}">${esc(x.nombre)}</button>`).join('') : `<strong>${esc(c.nombre)}</strong>`}
+      <span class="sutil">Comparación del ${esc(generado)}</span>
+    </div>
+    <div class="tarjetas">
+      <div class="tarjeta ${r.venta_sin_stock ? 'peligro' : ''}"><div class="etiqueta">ML tiene de más</div><div class="valor">${r.venta_sin_stock}</div><div class="sutil">riesgo de vender sin stock</div></div>
+      <div class="tarjeta ${r.diferencia ? 'alerta' : ''}"><div class="etiqueta">ML tiene de menos</div><div class="valor">${r.diferencia}</div></div>
+      <div class="tarjeta"><div class="etiqueta">OK</div><div class="valor">${r.ok}</div></div>
+      <div class="tarjeta"><div class="etiqueta">Sin cruzar / sin código</div><div class="valor">${r.sin_cruzar + r.sin_ean_ml}</div></div>
+      <div class="tarjeta"><div class="etiqueta">No publicados</div><div class="valor">${r.no_publicado}</div></div>
+    </div>
+    <div class="herramientas-stock">
+      ${[...Object.keys(ESTADOS_STOCK), 'todos'].map((k) => `<button class="chip ${k === filtroStock ? 'activo' : ''}" data-filtro="${k}">${k === 'todos' ? 'Todos' : esc(ESTADOS_STOCK[k].texto)}</button>`).join('')}
+    </div>
+    ${filtroStock !== 'todos' ? `<p class="nota-regla">${esc(ESTADOS_STOCK[filtroStock].ayuda)}</p>` : ''}
+    <div class="tabla-envoltura">
+      <table class="tabla sin-clic">
+        <thead><tr>
+          <th>Producto</th><th>Estado</th><th class="num">ML</th><th class="num">Proges</th><th class="num">Planet.com</th><th class="num">Total depósito</th><th class="num">Diferencia</th>
+        </tr></thead>
+        <tbody>${filas.map((f) => {
+          const e = ESTADOS_STOCK[f.status] ?? { texto: f.status, clase: '' };
+          return `<tr>
+            <td>${f.permalink ? `<a href="${esc(f.permalink)}" target="_blank" rel="noopener">${esc(f.title)}</a>` : esc(f.title)}
+              <div class="sutil">${[f.ml_id, f.ean ? `EAN ${f.ean}` : ''].filter(Boolean).map(esc).join(' · ')}</div></td>
+            <td><span class="etiqueta-estado ${e.clase}">${esc(e.texto)}</span></td>
+            <td class="num">${n(f.ml_stock)}</td><td class="num">${n(f.proges_stock)}</td><td class="num">${n(f.planet_stock)}</td>
+            <td class="num">${n(f.internal_stock)}</td>
+            <td class="num">${f.diff ? `<span class="${f.diff > 0 ? 'num-peligro' : ''}">${f.diff > 0 ? '+' : ''}${f.diff}</span>` : n(f.diff)}</td>
+          </tr>`;
+        }).join('') || '<tr><td class="vacio" colspan="7">No hay productos en este estado.</td></tr>'}
+        </tbody>
+      </table>
+    </div>`;
+
+  cont.querySelectorAll('[data-filtro]').forEach((b) => b.addEventListener('click', () => { filtroStock = b.dataset.filtro; dibujarStock(cont); }));
+  cont.querySelectorAll('[data-cuenta]').forEach((b) => b.addEventListener('click', () => { cuentaStock = b.dataset.cuenta; dibujarStock(cont); }));
 }
 
 // ===========================================================================
