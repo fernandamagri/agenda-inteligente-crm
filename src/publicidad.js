@@ -74,10 +74,11 @@ export async function resumenPublicidad(usuario, { dias = 7 } = {}) {
            FROM ads_presupuesto_horario, hoy
           WHERE estado = 'active' AND fecha_ar > hoy.d - :dias::int
           GROUP BY fecha_ar, campaign_id)
+       -- Ojo: no usar ':' dentro de textos del SQL (db.js lo toma como parámetro con nombre).
        SELECT to_char(u.fecha_ar, 'YYYY-MM-DD') AS fecha, u.campaign_id, u.campana, u.presupuesto_diario,
               u.gasto_hoy, u.pct_consumido, u.ingresos_hoy, u.clics_hoy, u.roas_objetivo,
-              to_char(u.ultima_hora, 'HH24:MI') AS ultima_hora,
-              to_char(c.hora_corte, 'HH24:MI') AS hora_corte, r.tomas,
+              left(u.ultima_hora::text, 5) AS ultima_hora,
+              left(c.hora_corte::text, 5) AS hora_corte, r.tomas,
               (SELECT d FROM hoy) = u.fecha_ar AS es_hoy
          FROM ultima u
          LEFT JOIN corte c USING (fecha_ar, campaign_id)
