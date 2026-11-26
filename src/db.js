@@ -117,14 +117,14 @@ export async function cargarDatosDeEjemplo() {
   }
 }
 
-/** Crea las tablas si faltan y carga los datos de ejemplo solo si la base está vacía. */
+/**
+ * Crea las tablas si faltan. Ya NO carga datos de ejemplo: la agenda se usa con datos reales
+ * y las cuentas de prueba (con contraseña fija) serían una puerta abierta.
+ */
 export async function prepararBase() {
   await pool.query(ESQUEMA);
   const { total } = await uno('SELECT COUNT(*)::int AS total FROM usuarios');
-  if (total === 0) {
-    await cargarDatosDeEjemplo();
-    console.log('Base de datos vacía: se cargaron los datos de ejemplo.');
-  }
+  if (total === 0) console.warn('Aviso: la tabla de usuarios está vacía. No se cargan datos de ejemplo.');
 }
 
 /** Borra todos los datos y vuelve a cargar los de ejemplo. */

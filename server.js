@@ -248,7 +248,6 @@ app.listen(PUERTO, (err) => {
     process.exit(1);
   }
   console.log(`\nAgenda Inteligente CRM funcionando en http://localhost:${PUERTO}`);
-  console.log('Usuarios de prueba (contraseña demo123): ana@demo.com, luis@demo.com, admin@demo.com');
   if (!credencialesConfiguradas()) {
     console.log('\nAviso: no hay ANTHROPIC_API_KEY configurada. El CRM funciona, pero el asistente no va a responder.');
     console.log('Copiá .env.example como .env, completá la clave y reiniciá la app.\n');

@@ -250,14 +250,6 @@ document.addEventListener('click', (ev) => {
   if (b) b.closest('dialog')?.close();
 });
 
-document.querySelectorAll('.demo-usuarios .chip').forEach((b) =>
-  b.addEventListener('click', () => {
-    $('#form-login [name=email]').value = b.dataset.email;
-    $('#form-login [name=password]').value = 'demo123';
-    $('#form-login').requestSubmit();
-  })
-);
-
 $('#boton-salir').addEventListener('click', async () => {
   await api('POST', '/api/logout').catch(() => {});
   $('#chat-mensajes').innerHTML = '';
@@ -1282,7 +1274,7 @@ async function renderUsuarios(cont) {
         }).join('')}</tbody>
       </table>
     </div>
-    <p class="nota-regla">Las cuentas de prueba (@demo.com) tienen la contraseña fija <code>demo123</code> para que la demo siempre funcione. Al desactivar a alguien se cierra su sesión; sus clientes y tareas quedan en el CRM y podés reasignarlos desde cada registro. Solo se puede <strong>borrar</strong> una cuenta que no tenga nada a su cargo.</p>`;
+    <p class="nota-regla">Al desactivar a alguien se cierra su sesión; sus clientes y tareas quedan en el CRM y podés reasignarlos desde cada registro. Solo se puede <strong>borrar</strong> una cuenta que no tenga nada a su cargo.</p>`;
 }
 
 let usuarioEditado = null;
