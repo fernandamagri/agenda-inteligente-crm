@@ -1045,10 +1045,13 @@ function activarCargaListas(cont) {
 
   const actualizar = async () => {
     mensaje.textContent = 'Comparando con Mercado Libre… puede tardar 1 o 2 minutos.';
-    await api('POST', '/api/stock/actualizar');
+    const r = await api('POST', '/api/stock/actualizar');
     datosStock = await api('GET', '/api/stock');
     if (estado.vista === 'stock') dibujarStock(cont);
-    avisar('Comparación de stock actualizada.');
+    if (r.errores?.length) {
+      const m = $('#mensaje-carga', cont);
+      if (m) { m.classList.add('error'); m.textContent = `Actualizada, pero con problemas: ${r.errores.join(' · ')}`; }
+    } else avisar('Comparación de stock actualizada.');
   };
 
   cont.querySelectorAll('input[data-lista]').forEach((input) => input.addEventListener('change', async () => {

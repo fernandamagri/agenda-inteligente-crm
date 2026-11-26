@@ -86,5 +86,6 @@ export async function actualizarComparacion(usuario) {
   const res = await llamarApp('/api/compare', {}, 240);
   const datos = await res.json().catch(() => ({}));
   if (!res.ok) throw new ErrorCRM(datos.error || `No se pudo actualizar la comparación (${res.status}).`, 502);
-  return { ok: true };
+  const errores = Object.values(datos.accounts ?? {}).filter((a) => a.error).map((a) => `${a.label}: ${a.error}`);
+  return { ok: true, errores };
 }
