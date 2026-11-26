@@ -85,6 +85,7 @@ export const ENTIDADES = {
       cliente_id: { tipo: 'cliente' },
       titulo: { tipo: 'texto', requerido: true },
       descripcion: { tipo: 'texto' },
+      enlace: { tipo: 'enlace' },
       fecha_limite: { tipo: 'fecha' },
       prioridad: { tipo: 'enum', valores: ENUMS.prioridad, requerido: true },
       estado: { tipo: 'enum', valores: ENUMS.estadoTarea, requerido: true },
@@ -173,6 +174,11 @@ async function limpiar(e, datos, usuario, parcial) {
       case 'texto':
         if (typeof v !== 'string') throw new ErrorCRM(`"${campo}" debe ser texto.`);
         if (v.length > 2000) throw new ErrorCRM(`"${campo}" es demasiado largo.`);
+        break;
+      case 'enlace':
+        // Solo direcciones web: evita links "javascript:" u otros esquemas peligrosos.
+        if (typeof v !== 'string' || !/^https?:\/\/\S+$/i.test(v) || v.length > 2000)
+          throw new ErrorCRM(`"${campo}" debe ser una dirección web que empiece con http:// o https://.`);
         break;
       case 'enum':
         if (!def.valores.includes(v)) throw new ErrorCRM(`"${campo}" debe ser uno de: ${def.valores.join(', ')}.`);

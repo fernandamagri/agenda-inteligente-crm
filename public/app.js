@@ -466,7 +466,7 @@ const ENTIDADES = {
     titulo: 'Tareas', singular: 'tarea',
     columnas: [
       { t: '', v: (x) => casillaTarea(x), c: 'col-casilla' },
-      { t: 'Tarea', v: (x) => `<strong>${esc(x.titulo)}</strong>${x.descripcion ? `<div class="sutil">${esc(x.descripcion)}</div>` : ''}` },
+      { t: 'Tarea', v: (x) => `<strong>${esc(x.titulo)}</strong>${x.descripcion ? `<div class="sutil">${esc(x.descripcion)}</div>` : ''}${/^https?:\/\//i.test(x.enlace || '') ? `<div><a href="${esc(x.enlace)}" target="_blank" rel="noopener noreferrer">🔗 Abrir link</a></div>` : ''}` },
       { t: 'Cliente', v: (x) => linkCliente(x.cliente_id, x.cliente) },
       {
         t: 'Fecha límite',
@@ -488,6 +488,7 @@ const ENTIDADES = {
       { n: 'estado', t: 'Estado', opciones: ['pendiente', 'en_progreso', 'completada'], def: 'pendiente' },
       { n: 'asignado_id', t: 'Asignada a', tipo: 'usuario' },
       { n: 'descripcion', t: 'Descripción', tipo: 'area' },
+      { n: 'enlace', t: 'Link (opcional)', ancho: true },
     ],
   },
   actividades: {

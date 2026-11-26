@@ -73,6 +73,12 @@ CREATE INDEX IF NOT EXISTS tareas_asignado_idx ON tareas (asignado_id);
 CREATE INDEX IF NOT EXISTS actividades_cliente_idx ON actividades (cliente_id);
 CREATE INDEX IF NOT EXISTS actividades_responsable_idx ON actividades (responsable_id);
 
+-- Link opcional de una tarea (por ejemplo, a la planilla de una auditoría). Solo http/https.
+ALTER TABLE tareas ADD COLUMN IF NOT EXISTS enlace TEXT;
+DO $$ BEGIN
+  ALTER TABLE tareas ADD CONSTRAINT tareas_enlace_web CHECK (enlace IS NULL OR enlace ~* '^https?://');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
 ALTER TABLE usuarios ENABLE ROW LEVEL SECURITY;
 ALTER TABLE clientes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE contactos ENABLE ROW LEVEL SECURITY;
